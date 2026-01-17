@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"name": "ESP32-SimpleFOC-Test",
+			"path": "."
+		}
+	],
+    "settings": {
+        "files.associations": {
+            "*.tcc": "cpp",
+            "string": "cpp",
+            "iosfwd": "cpp"
+        }
+    }
+}
