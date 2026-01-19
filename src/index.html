@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>SimpleFOC M-Command UI</title>
+
+<style>
+  body {
+    background:#0b0f17;
+    color:#e5e7eb;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont;
+    margin:0;
+    padding:12px;
+  }
+  .panel {
+    border:1px solid #1f2937;
+    border-radius:10px;
+    padding:12px;
+    margin-bottom:12px;
+  }
+  .row {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:10px;
+  }
+  label {
+    font-size:12px;
+    color:#9ca3af;
+    display:block;
+    margin-bottom:4px;
+  }
+  button {
+    background:#111827;
+    color:#e5e7eb;
+    border:1px solid #374151;
+    border-radius:8px;
+    padding:6px 12px;
+    cursor:pointer;
+  }
+  button:hover { border-color:#6b7280; }
+  input[type=range] { flex:1; }
+  input[type=number], input[type=text] {
+    background:#020617;
+    color:#e5e7eb;
+    border:1px solid #374151;
+    border-radius:6px;
+    padding:6px;
+  }
+  .value {
+    width:70px;
+    text-align:right;
+    font-family: monospace;
+  }
+  .terminal {
+    background:#020617;
+    border:1px solid #1f2937;
+    border-radius:8px;
+    height:220px;
+    overflow:auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size:12px;
+    padding:8px;
+  }
+</style>
+</head>
+
+<body>
+
+<!-- Connection / Power -->
+<div class="panel">
+  <div class="row">
+    <button id="btnConnect">Connect</button>
+    <button onclick="send('ME1')">Enable</button>
+    <button onclick="send('ME0')">Disable</button>
+  </div>
+</div>
+
+<!-- Modes -->
+<div class="panel">
+  <label>Motion Mode</label>
+  <div class="row">
+    <button onclick="setMC(0)">Torque</button>
+    <button onclick="setMC(1)">Velocity</button>
+    <button onclick="setMC(2)">Angle</button>
+  </div>
+
+  <label>Torque Mode</label>
+  <div class="row">
+    <button onclick="setMT(0)">Volt</button>
+    <button onclick="setMT(2)">FOC Current</button>
+  </div>
+</div>
+
+<!-- Sliders -->
+<div class="panel">
+  <label>Target</label>
+  <div class="row">
+    <input id="target" type="range"
+           min="-20" max="20" step="0.01" value="0"
+           oninput="updateVal('targetVal',this.value); autoSend();">
+    <div class="value" id="targetVal">0.00</div>
+  </div>
+
+  <label>Velocity Limit</label>
+  <div class="row">
+    <input id="vlimit" type="range"
+           min="0" max="100" step="0.1" value="60"
+           oninput="updateVal('vlimitVal',this.value); autoSend();">
+    <div class="value" id="vlimitVal">60.0</div>
+  </div>
+
+  <label>Torque / Voltage Limit</label>
+  <div class="row">
+    <input id="tlimit" type="range"
+           min="0" max="10" step="0.1" value="6"
+           oninput="updateVal('tlimitVal',this.value); autoSend();">
+    <div class="value" id="tlimitVal">6.0</div>
+  </div>
+</div>
+
+<!-- PID Control -->
+<div class="panel">
+  <label>Velocity PID (manual send)</label>
+  <div class="row">
+    <label>P</label>
+    <input id="pidP" type="number" step="0.001" value="0.1">
+    <label>I</label>
+    <input id="pidI" type="number" step="0.001" value="0">
+    <label>D</label>
+    <input id="pidD" type="number" step="0.0001" value="0">
+    <button onclick="sendPID()">Send PID</button>
+  </div>
+</div>
+
+<!-- Raw Command -->
+<div class="panel">
+  <label>Raw Command</label>
+  <div class="row">
+    <input id="rawCmd" type="text" style="flex:1"
+           placeholder="例如：M10 60 0.5 / MC1 / MT2 / ?">
+    <button onclick="sendRaw()">Send</button>
+  </div>
+</div>
+
+<!-- Terminal -->
+<div class="panel terminal" id="terminal"></div>
+
+<script>
+let port = null;
+let writer = null;
+let motion = 0; // 0=torque, 1=velocity, 2=angle
+const term = document.getElementById("terminal");
+
+function log(text) {
+  term.innerHTML += text + "<br>";
+  term.scrollTop = term.scrollHeight;
+}
+
+function updateVal(id, v) {
+  document.getElementById(id).innerText = Number(v).toFixed(2);
+}
+
+async function connect() {
+  port = await navigator.serial.requestPort();
+  await port.open({ baudRate: 115200 });
+  writer = port.writable.getWriter();
+  log("[ui] connected");
+  readLoop();
+}
+
+async function send(cmd) {
+  if (!writer) return;
+  log("&gt; " + cmd);
+  await writer.write(new TextEncoder().encode(cmd + "\n"));
+}
+
+function setMC(v) {
+  motion = v;
+  send("MC" + v);
+}
+
+function setMT(v) {
+  send("MT" + v);
+}
+
+function autoSend() {
+  if (!writer) return;
+
+  const t = document.getElementById("target").value;
+  const v = document.getElementById("vlimit").value;
+  const l = document.getElementById("tlimit").value;
+
+  let cmd = "M" + t;
+
+  if (motion === 2) {        // angle
+    if (v > 0) cmd += " " + v;
+    if (l > 0) cmd += " " + l;
+  }
+  else if (motion === 1) {   // velocity
+    if (l > 0) cmd += " " + l;
+  }
+
+  send(cmd);
+}
+
+/* -------- PID manual control -------- */
+function sendPID() {
+  const P = document.getElementById("pidP").value;
+  const I = document.getElementById("pidI").value;
+  const D = document.getElementById("pidD").value;
+
+  send("M P " + P);
+  send("M I " + I);
+  send("M D " + D);
+}
+
+/* -------- Raw command -------- */
+function sendRaw() {
+  const cmd = document.getElementById("rawCmd").value.trim();
+  if (cmd) send(cmd);
+}
+
+/* -------- Serial read -------- */
+async function readLoop() {
+  const reader = port.readable.getReader();
+  const decoder = new TextDecoder();
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    log(decoder.decode(value).trim());
+  }
+}
+
+document.getElementById("btnConnect").onclick = connect;
+</script>
+
+</body>
+</html>
