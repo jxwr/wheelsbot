@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>SimpleFOC M-Command UI</title>
+<title>SimpleFOC + MPU6050 3D View</title>
 
 <style>
   body {
@@ -11,6 +11,11 @@
     font-family: system-ui, -apple-system, BlinkMacSystemFont;
     margin:0;
     padding:12px;
+  }
+  .grid {
+    display:grid;
+    grid-template-columns: 420px 1fr;
+    gap:12px;
   }
   .panel {
     border:1px solid #1f2937;
@@ -23,6 +28,7 @@
     align-items:center;
     gap:10px;
     margin-bottom:10px;
+    flex-wrap: wrap;
   }
   label {
     font-size:12px;
@@ -62,95 +68,146 @@
     font-size:12px;
     padding:8px;
   }
+  .canvasWrap{
+    height:520px;
+    border:1px solid #1f2937;
+    border-radius:10px;
+    overflow:hidden;
+    background:#020617;
+  }
+  .hint{
+    font-size:12px;
+    color:#9ca3af;
+    margin-top:6px;
+    line-height:1.5;
+  }
+  .kv{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size:12px;
+    color:#cbd5e1;
+  }
 </style>
 </head>
 
 <body>
 
-<!-- Connection / Power -->
-<div class="panel">
-  <div class="row">
-    <button id="btnConnect">Connect</button>
-    <button onclick="send('ME1')">Enable</button>
-    <button onclick="send('ME0')">Disable</button>
+<div class="grid">
+  <!-- LEFT: controls -->
+  <div>
+    <!-- Connection / Power -->
+    <div class="panel">
+      <div class="row">
+        <button id="btnConnect">Connect</button>
+        <button onclick="send('ME1')">Enable</button>
+        <button onclick="send('ME0')">Disable</button>
+      </div>
+      <div class="hint">
+        串口输出建议包含：<span class="kv">IMU,pitch,roll,yaw</span>（deg）
+      </div>
+    </div>
+
+    <!-- Modes -->
+    <div class="panel">
+      <label>Motion Mode</label>
+      <div class="row">
+        <button onclick="setMC(0)">Torque</button>
+        <button onclick="setMC(1)">Velocity</button>
+        <button onclick="setMC(2)">Angle</button>
+      </div>
+
+      <label>Torque Mode</label>
+      <div class="row">
+        <button onclick="setMT(0)">Volt</button>
+        <button onclick="setMT(2)">FOC Current</button>
+      </div>
+    </div>
+
+    <!-- Sliders -->
+    <div class="panel">
+      <label>Target</label>
+      <div class="row">
+        <input id="target" type="range"
+              min="-20" max="20" step="0.01" value="0"
+              oninput="updateVal('targetVal',this.value); autoSend();">
+        <div class="value" id="targetVal">0.00</div>
+      </div>
+
+      <label>Velocity Limit</label>
+      <div class="row">
+        <input id="vlimit" type="range"
+              min="0" max="100" step="0.1" value="60"
+              oninput="updateVal('vlimitVal',this.value); autoSend();">
+        <div class="value" id="vlimitVal">60.0</div>
+      </div>
+
+      <label>Torque / Voltage Limit</label>
+      <div class="row">
+        <input id="tlimit" type="range"
+              min="0" max="10" step="0.1" value="6"
+              oninput="updateVal('tlimitVal',this.value); autoSend();">
+        <div class="value" id="tlimitVal">6.0</div>
+      </div>
+    </div>
+
+    <!-- PID Control -->
+    <div class="panel">
+      <label>Velocity PID (manual send)</label>
+      <div class="row">
+        <label>P</label>
+        <input id="pidP" type="number" step="0.001" value="0.1">
+        <label>I</label>
+        <input id="pidI" type="number" step="0.001" value="0">
+        <label>D</label>
+        <input id="pidD" type="number" step="0.0001" value="0">
+        <button onclick="sendPID()">Send PID</button>
+      </div>
+    </div>
+
+    <!-- Raw Command -->
+    <div class="panel">
+      <label>Raw Command</label>
+      <div class="row">
+        <input id="rawCmd" type="text" style="flex:1"
+              placeholder="例如：M10 60 0.5 / MC1 / MT2 / ?">
+        <button onclick="sendRaw()">Send</button>
+      </div>
+    </div>
+
+    <!-- Terminal -->
+    <div class="panel terminal" id="terminal"></div>
+  </div>
+
+  <!-- RIGHT: 3D view -->
+  <div>
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <div>
+          <div style="font-size:14px;font-weight:600;">MPU6050 3D View</div>
+          <div class="hint">模型会跟随 <span class="kv">IMU,pitch,roll,yaw</span> 旋转（yaw 会漂移属正常）</div>
+        </div>
+        <div class="row" style="margin:0;">
+          <button id="btnRecenter">Recenter</button>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:8px;">
+        <div class="kv" id="imuText">pitch=0.00 roll=0.00 yaw=0.00</div>
+      </div>
+
+      <div class="canvasWrap" id="view3d"></div>
+    </div>
   </div>
 </div>
 
-<!-- Modes -->
-<div class="panel">
-  <label>Motion Mode</label>
-  <div class="row">
-    <button onclick="setMC(0)">Torque</button>
-    <button onclick="setMC(1)">Velocity</button>
-    <button onclick="setMC(2)">Angle</button>
-  </div>
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 
-  <label>Torque Mode</label>
-  <div class="row">
-    <button onclick="setMT(0)">Volt</button>
-    <button onclick="setMT(2)">FOC Current</button>
-  </div>
-</div>
-
-<!-- Sliders -->
-<div class="panel">
-  <label>Target</label>
-  <div class="row">
-    <input id="target" type="range"
-           min="-20" max="20" step="0.01" value="0"
-           oninput="updateVal('targetVal',this.value); autoSend();">
-    <div class="value" id="targetVal">0.00</div>
-  </div>
-
-  <label>Velocity Limit</label>
-  <div class="row">
-    <input id="vlimit" type="range"
-           min="0" max="100" step="0.1" value="60"
-           oninput="updateVal('vlimitVal',this.value); autoSend();">
-    <div class="value" id="vlimitVal">60.0</div>
-  </div>
-
-  <label>Torque / Voltage Limit</label>
-  <div class="row">
-    <input id="tlimit" type="range"
-           min="0" max="10" step="0.1" value="6"
-           oninput="updateVal('tlimitVal',this.value); autoSend();">
-    <div class="value" id="tlimitVal">6.0</div>
-  </div>
-</div>
-
-<!-- PID Control -->
-<div class="panel">
-  <label>Velocity PID (manual send)</label>
-  <div class="row">
-    <label>P</label>
-    <input id="pidP" type="number" step="0.001" value="0.1">
-    <label>I</label>
-    <input id="pidI" type="number" step="0.001" value="0">
-    <label>D</label>
-    <input id="pidD" type="number" step="0.0001" value="0">
-    <button onclick="sendPID()">Send PID</button>
-  </div>
-</div>
-
-<!-- Raw Command -->
-<div class="panel">
-  <label>Raw Command</label>
-  <div class="row">
-    <input id="rawCmd" type="text" style="flex:1"
-           placeholder="例如：M10 60 0.5 / MC1 / MT2 / ?">
-    <button onclick="sendRaw()">Send</button>
-  </div>
-</div>
-
-<!-- Terminal -->
-<div class="panel terminal" id="terminal"></div>
-
-<script>
 let port = null;
 let writer = null;
 let motion = 0; // 0=torque, 1=velocity, 2=angle
+
 const term = document.getElementById("terminal");
+const imuText = document.getElementById("imuText");
 
 function log(text) {
   term.innerHTML += text + "<br>";
@@ -221,16 +278,166 @@ function sendRaw() {
   if (cmd) send(cmd);
 }
 
-/* -------- Serial read -------- */
+/* ================== three.js view ================== */
+const wrap = document.getElementById("view3d");
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(
+  55,
+  wrap.clientWidth / wrap.clientHeight,
+  0.01,
+  100
+);
+camera.position.set(0.8, 0.6, 1.2);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+wrap.appendChild(renderer.domElement);
+
+// light
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+dir.position.set(2, 3, 4);
+scene.add(dir);
+
+// helpers
+scene.add(new THREE.AxesHelper(0.4));
+
+// "device" model: box + arrow
+const bodyGeo = new THREE.BoxGeometry(0.5, 0.08, 0.25);
+const bodyMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.2, roughness: 0.6 });
+const deviceMesh = new THREE.Mesh(bodyGeo, bodyMat);
+scene.add(deviceMesh);
+
+const arrowGeo = new THREE.ConeGeometry(0.04, 0.12, 24);
+const arrowMat = new THREE.MeshStandardMaterial({ color: 0x60a5fa, metalness: 0.1, roughness: 0.5 });
+const arrow = new THREE.Mesh(arrowGeo, arrowMat);
+arrow.position.set(0.25, 0, 0);          // 指向 X+
+arrow.rotation.z = -Math.PI / 2;
+deviceMesh.add(arrow);
+
+// target orientation
+let qTarget = new THREE.Quaternion();
+let qZero = new THREE.Quaternion(); // recenter baseline
+
+function deg2rad(d){ return d * Math.PI / 180; }
+
+// 这里是“轴映射/符号”的关键位置：如果感觉方向不对，就在这儿改
+function setOrientationFromIMU(pitchDeg, rollDeg, yawDeg) {
+  // 约定：
+  // - three.js: X 右, Y 上, Z 外(朝你)
+  // - MPU 常见：pitch 绕 Y 或 X？roll 绕 X？取决于你板子朝向
+  //
+  // 先给一个常用映射：
+  // roll  -> X
+  // pitch -> Z（很多安装下更直观：抬头/低头像绕 Z 或 X，需要你按实际改）
+  // yaw   -> Y
+  //
+  // 如果你发现：
+  // - 左右倾斜没动：尝试把 roll 映射到 Z 或 Y
+  // - 前后俯仰反了：把 pitchDeg 取负
+  //
+  const r = deg2rad(rollDeg);
+  const p = deg2rad(pitchDeg);
+  const y = deg2rad(yawDeg);
+
+  const euler = new THREE.Euler(
+    r,   // x
+    y,   // y
+    p,   // z
+    "XYZ"
+  );
+
+  const q = new THREE.Quaternion().setFromEuler(euler);
+  qTarget.copy(q);
+}
+
+// smooth
+function animate(){
+  requestAnimationFrame(animate);
+
+  // slerp: 当前 -> 目标（带 recenter）
+  const qFinal = qTarget.clone().premultiply(qZero); // recenter
+  deviceMesh.quaternion.slerp(qFinal, 0.15);
+
+  renderer.render(scene, camera);
+}
+animate();
+
+// resize
+window.addEventListener("resize", () => {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+});
+
+// recenter button: 把当前姿态当作“零点”
+document.getElementById("btnRecenter").onclick = () => {
+  // qZero * qTarget = identity  => qZero = inverse(qTarget)
+  qZero.copy(qTarget).invert();
+  log("[ui] recentered");
+};
+
+/* ================== Serial read & parse ================== */
+let rxBuf = "";
+
 async function readLoop() {
   const reader = port.readable.getReader();
   const decoder = new TextDecoder();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    log(decoder.decode(value).trim());
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      rxBuf += decoder.decode(value, { stream: true });
+
+      // split by lines
+      let idx;
+      while ((idx = rxBuf.indexOf("\n")) >= 0) {
+        const line = rxBuf.slice(0, idx).trim();
+        rxBuf = rxBuf.slice(idx + 1);
+
+        if (!line) continue;
+
+        // show in terminal (可选：你也可以只显示非 IMU 的行)
+        log(line);
+
+        // parse: IMU,pitch,roll,yaw
+        if (line.startsWith("IMU,")) {
+          const parts = line.split(",");
+          if (parts.length >= 4) {
+            const pitch = parseFloat(parts[1]);
+            const roll  = parseFloat(parts[2]);
+            const yaw   = parseFloat(parts[3]);
+
+            if (Number.isFinite(pitch) && Number.isFinite(roll) && Number.isFinite(yaw)) {
+              imuText.textContent = `pitch=${pitch.toFixed(2)} roll=${roll.toFixed(2)} yaw=${yaw.toFixed(2)}`;
+              setOrientationFromIMU(pitch, roll, yaw);
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    log("[ui] read error: " + e);
+  } finally {
+    reader.releaseLock();
   }
 }
+
+// expose to buttons
+window.send = send;
+window.setMC = setMC;
+window.setMT = setMT;
+window.autoSend = autoSend;
+window.sendPID = sendPID;
+window.sendRaw = sendRaw;
+window.updateVal = updateVal;
 
 document.getElementById("btnConnect").onclick = connect;
 </script>

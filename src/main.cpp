@@ -340,22 +340,63 @@ void mpu6050TestTask(void* arg) {
   const TickType_t period = pdMS_TO_TICKS(5); // 200Hz
   uint32_t lastPrintMs = 0;
 
+  // ---- complementary filter state (deg) ----
+  float roll = 0.0f;
+  float pitch = 0.0f;
+  float yaw = 0.0f;
+
+  // tuning
+  const float alpha = 0.98f;  // gyro weight; 0.95~0.995 都可试
+
+  // time
+  uint32_t lastUs = micros();
+
   for (;;) {
     ImuRaw s;
     if (mpuRead14(s)) {
-      ImuScaled d = convertAndCompute(s);
+      // dt
+      uint32_t nowUs = s.t_us;
+      float dt = (nowUs - lastUs) * 1e-6f;
+      if (dt <= 0 || dt > 0.1f) dt = 0.005f; // 防止异常 dt
+      lastUs = nowUs;
 
-      uint32_t now = millis();
-      if (now - lastPrintMs >= 50) { // 20Hz 打印
-        lastPrintMs = now;
-        Serial.printf(
-          "acc(%+.2f %+.2f %+.2f) gyro(%+.1f %+.1f %+.1f) pitch(%+.2f°)\n",
-          d.ax_g, d.ay_g, d.az_g,
-          d.gx_dps, d.gy_dps, d.gz_dps,
-          d.pitch_deg
-        );
+      // scale
+      const float ax = s.ax / 16384.0f;
+      const float ay = s.ay / 16384.0f;
+      const float az = s.az / 16384.0f;
+
+      const float gx = s.gx / 131.0f; // deg/s
+      const float gy = s.gy / 131.0f;
+      const float gz = s.gz / 131.0f;
+
+      // accel angles (deg)
+      // roll: around X axis? 常用定义：roll = atan2(ay, az)
+      float rollAcc  = atan2f(ay, az) * 180.0f / PI;
+      // pitch: atan2(-ax, sqrt(ay^2+az^2))
+      float pitchAcc = atan2f(-ax, sqrtf(ay * ay + az * az)) * 180.0f / PI;
+
+      // gyro integrate
+      // 注意：这里假设 gx->roll rate, gy->pitch rate, gz->yaw rate（与安装方向相关）
+      float rollGyro  = roll  + gx * dt;
+      float pitchGyro = pitch + gy * dt;
+      float yawGyro   = yaw   + gz * dt;
+
+      // complementary fuse
+      roll  = alpha * rollGyro  + (1.0f - alpha) * rollAcc;
+      pitch = alpha * pitchGyro + (1.0f - alpha) * pitchAcc;
+      yaw   = yawGyro; // 没有磁力计就先纯积分（会漂移）
+
+      // print 50Hz
+      uint32_t nowMs = millis();
+      if (nowMs - lastPrintMs >= 20) {
+        lastPrintMs = nowMs;
+
+        // 统一输出一行，便于网页解析
+        // 格式：IMU,pitch,roll,yaw
+        Serial.printf("IMU,%.2f,%.2f,%.2f\n", pitch, roll, yaw);
       }
     }
+
     vTaskDelayUntil(&last, period);
   }
 }
