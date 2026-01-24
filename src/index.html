@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>SimpleFOC + MPU6050 3D View</title>
+<title>BalanceCore + SimpleFOC + MPU6050 3D Debug UI</title>
 
 <style>
   body {
@@ -14,7 +14,7 @@
   }
   .grid {
     display:grid;
-    grid-template-columns: 420px 1fr;
+    grid-template-columns: 460px 1fr;
     gap:12px;
   }
   .panel {
@@ -46,7 +46,7 @@
   }
   button:hover { border-color:#6b7280; }
   input[type=range] { flex:1; }
-  input[type=number], input[type=text] {
+  input[type=number], input[type=text], select {
     background:#020617;
     color:#e5e7eb;
     border:1px solid #374151;
@@ -54,9 +54,9 @@
     padding:6px;
   }
   .value {
-    width:70px;
+    width:84px;
     text-align:right;
-    font-family: monospace;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   .terminal {
     background:#020617;
@@ -86,6 +86,38 @@
     font-size:12px;
     color:#cbd5e1;
   }
+  .badge{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:4px 10px;
+    border:1px solid #334155;
+    border-radius:999px;
+    background:#0b1220;
+    font-size:12px;
+    color:#cbd5e1;
+  }
+  .dot{
+    width:8px;height:8px;border-radius:50%;
+    background:#6b7280;
+  }
+  .dot.ok{ background:#22c55e; }
+  .dot.bad{ background:#ef4444; }
+  .small{
+    font-size:12px;
+    color:#9ca3af;
+  }
+  .split2{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:10px;
+  }
+  .mono{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .hr{
+    height:1px;background:#1f2937;margin:10px 0;
+  }
 </style>
 </head>
 
@@ -96,18 +128,157 @@
   <div>
     <!-- Connection / Power -->
     <div class="panel">
-      <div class="row">
-        <button id="btnConnect">Connect</button>
-        <button onclick="send('ME1')">Enable</button>
-        <button onclick="send('ME0')">Disable</button>
+      <div class="row" style="justify-content:space-between;">
+        <div class="row" style="margin:0;">
+          <button id="btnConnect">Connect</button>
+          <button id="btnDisconnect" disabled>Disconnect</button>
+        </div>
+        <div class="badge">
+          <span id="connDot" class="dot"></span>
+          <span id="connText">disconnected</span>
+        </div>
       </div>
+
+      <div class="row" style="margin-top:8px;">
+        <button onclick="send('ME1')">Enable Motor</button>
+        <button onclick="send('ME0')">Disable Motor</button>
+
+        <!-- 建议你在固件里实现：BE1/BE0 控制 balance enable -->
+        <button onclick="send('BE1')">Enable Balance</button>
+        <button onclick="send('BE0')">Disable Balance</button>
+
+        <!-- 拉取一次设备参数/状态 -->
+        <button onclick="requestAll()">Sync</button>
+      </div>
+
       <div class="hint">
-        串口输出建议包含：<span class="kv">IMU,pitch,roll,yaw</span>（deg）
+        串口建议输出：<span class="kv">IMU,pitch,roll,yaw</span>（deg）用于 3D。<br>
+        另外建议输出：<span class="kv">BAL,pitch,pr,uL,uR,state,ok</span>（rad/rad/s/rad/s）用于调参面板。<br>
+        参数回显建议：<span class="kv">BCP,kp,ki,kd,alpha,max_out,max_tilt,pitch_target,v2speed,yaw2diff</span>
       </div>
     </div>
 
-    <!-- Modes -->
+    <!-- Status / Telemetry -->
     <div class="panel">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div style="font-size:14px;font-weight:600;">Live Telemetry</div>
+          <div class="small">来自串口行：BAL,... / BCP,...</div>
+        </div>
+        <div class="badge">
+          <span id="balDot" class="dot"></span>
+          <span id="balText">balance unknown</span>
+        </div>
+      </div>
+
+      <div class="split2">
+        <div>
+          <label>Pitch (deg)</label>
+          <div class="kv" id="t_pitch">—</div>
+        </div>
+        <div>
+          <label>Pitch Rate (deg/s)</label>
+          <div class="kv" id="t_pr">—</div>
+        </div>
+        <div>
+          <label>Wheel Target (rad/s)</label>
+          <div class="kv" id="t_u">—</div>
+        </div>
+        <div>
+          <label>State / OK</label>
+          <div class="kv" id="t_state">—</div>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="row" style="margin:0;">
+        <label style="margin:0;">Auto Sync</label>
+        <select id="autoSync" onchange="onAutoSyncChanged()">
+          <option value="0">Off</option>
+          <option value="1000">1s</option>
+          <option value="2000">2s</option>
+          <option value="5000" selected>5s</option>
+          <option value="50000">50s</option>
+        </select>
+        <span class="small">周期发送：BC? / BS?（需要固件支持）</span>
+      </div>
+    </div>
+
+    <!-- BalanceCore Params -->
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div style="font-size:14px;font-weight:600;">BalanceCore Params</div>
+          <div class="small">在线改：Kp/Ki/Kd/alpha/max_out/max_tilt/pitch_target</div>
+        </div>
+        <div class="row" style="margin:0;">
+          <button onclick="requestBCP()">Read</button>
+          <button onclick="sendBCPAll()">Send All</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <label style="width:70px;">Kp</label>
+        <span id="b_kp"></span>
+        <input id="b_kp_set" type="number" step="0.01" value="40">
+        <button onclick="sendBC('Kp', getNum('b_kp_set'))">Send</button>
+      </div>
+      <div class="row">
+        <label style="width:70px;">Ki</label>
+        <span id="b_ki"></span>
+        <input id="b_ki_set" type="number" step="0.001" value="0">
+        <button onclick="sendBC('Ki', getNum('b_ki_set'))">Send</button>
+      </div>
+      <div class="row">
+        <label style="width:70px;">Kd</label>
+        <span id="b_kd"></span>
+        <input id="b_kd_set" type="number" step="0.01" value="1.6">
+        <button onclick="sendBC('Kd', getNum('b_kd_set'))">Send</button>
+      </div>
+
+      <div class="row">
+        <label style="width:70px;">alpha</label>
+        <input id="b_alpha" type="range" min="0.90" max="0.999" step="0.001" value="0.98"
+               oninput="updateVal('b_alpha_v', this.value)">
+        <div class="value" id="b_alpha_v">0.980</div>
+        <button onclick="sendBC('Alpha', getRange('b_alpha'))">Send</button>
+      </div>
+
+      <div class="row">
+        <label style="width:70px;">max_out</label>
+        <input id="b_maxout" type="range" min="0" max="80" step="0.1" value="15"
+               oninput="updateVal('b_maxout_v', this.value)">
+        <div class="value" id="b_maxout_v">15.0</div>
+        <button onclick="sendBC('MaxOut', getRange('b_maxout'))">Send</button>
+      </div>
+
+      <div class="row">
+        <label style="width:70px;">max_tilt</label>
+        <input id="b_maxtilt" type="range" min="5" max="60" step="0.5" value="35"
+               oninput="updateVal('b_maxtilt_v', this.value)">
+        <div class="value" id="b_maxtilt_v">35.0</div>
+        <button onclick="sendBC('MaxTiltDeg', getRange('b_maxtilt'))">Send</button>
+      </div>
+
+      <div class="row">
+        <label style="width:70px;">pitch_tgt</label>
+        <input id="b_ptgt" type="range" min="-10" max="10" step="0.1" value="0"
+               oninput="updateVal('b_ptgt_v', this.value)">
+        <div class="value" id="b_ptgt_v">0.0</div>
+        <button onclick="sendBC('PitchTargetDeg', getRange('b_ptgt'))">Send</button>
+      </div>
+
+      <div class="hint">
+        说明：这里把 <span class="kv">max_tilt / pitch_target</span> 用 “度” 发送更直观。固件端再转 rad。<br>
+        固件命令建议（你照这个实现即可）：<span class="kv">BC Kp 40</span>、<span class="kv">BC Alpha 0.98</span>、<span class="kv">BC MaxTiltDeg 35</span>、<span class="kv">BC?</span>
+      </div>
+    </div>
+
+    <!-- SimpleFOC controls (保留你之前的能力) -->
+    <div class="panel">
+      <div style="font-size:14px;font-weight:600;margin-bottom:8px;">SimpleFOC Controls</div>
+
       <label>Motion Mode</label>
       <div class="row">
         <button onclick="setMC(0)">Torque</button>
@@ -120,10 +291,9 @@
         <button onclick="setMT(0)">Volt</button>
         <button onclick="setMT(2)">FOC Current</button>
       </div>
-    </div>
 
-    <!-- Sliders -->
-    <div class="panel">
+      <div class="hr"></div>
+
       <label>Target</label>
       <div class="row">
         <input id="target" type="range"
@@ -147,10 +317,9 @@
               oninput="updateVal('tlimitVal',this.value); autoSend();">
         <div class="value" id="tlimitVal">6.0</div>
       </div>
-    </div>
 
-    <!-- PID Control -->
-    <div class="panel">
+      <div class="hr"></div>
+
       <label>Velocity PID (manual send)</label>
       <div class="row">
         <label>P</label>
@@ -168,8 +337,11 @@
       <label>Raw Command</label>
       <div class="row">
         <input id="rawCmd" type="text" style="flex:1"
-              placeholder="例如：M10 60 0.5 / MC1 / MT2 / ?">
+              placeholder="例如：M10 60 0.5 / MC1 / MT2 / BC Kp 40 / BC? / BS? / ?">
         <button onclick="sendRaw()">Send</button>
+      </div>
+      <div class="hint">
+        你可以把所有调试都统一走串口命令：SimpleFOC + BalanceCore 共存。
       </div>
     </div>
 
@@ -183,7 +355,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
         <div>
           <div style="font-size:14px;font-weight:600;">MPU6050 3D View</div>
-          <div class="hint">模型会跟随 <span class="kv">IMU,pitch,roll,yaw</span> 旋转（yaw 会漂移属正常）</div>
+          <div class="hint">模型跟随 <span class="kv">IMU,pitch,roll,yaw</span> 旋转（yaw 漂移正常）</div>
         </div>
         <div class="row" style="margin:0;">
           <button id="btnRecenter">Recenter</button>
@@ -205,17 +377,45 @@ import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 let port = null;
 let writer = null;
 let motion = 0; // 0=torque, 1=velocity, 2=angle
+let autoSyncTimer = null;
 
 const term = document.getElementById("terminal");
 const imuText = document.getElementById("imuText");
+
+const connDot = document.getElementById("connDot");
+const connText = document.getElementById("connText");
+const balDot = document.getElementById("balDot");
+const balText = document.getElementById("balText");
 
 function log(text) {
   term.innerHTML += text + "<br>";
   term.scrollTop = term.scrollHeight;
 }
+function setConn(connected){
+  connDot.className = "dot " + (connected ? "ok" : "");
+  connText.textContent = connected ? "connected" : "disconnected";
+  document.getElementById("btnDisconnect").disabled = !connected;
+}
+function setBal(ok, stateStr){
+  balDot.className = "dot " + (ok ? "ok" : "bad");
+  balText.textContent = stateStr || (ok ? "balance ok" : "balance not ok");
+}
 
 function updateVal(id, v) {
-  document.getElementById(id).innerText = Number(v).toFixed(2);
+  // 支持 float 显示
+  const el = document.getElementById(id);
+  const n = Number(v);
+  if (!Number.isFinite(n)) el.innerText = v;
+  else el.innerText = (Math.abs(n) < 10 ? n.toFixed(3) : n.toFixed(2));
+}
+
+function getNum(id){
+  const v = parseFloat(document.getElementById(id).value);
+  return Number.isFinite(v) ? v : 0;
+}
+function getRange(id){
+  const v = parseFloat(document.getElementById(id).value);
+  return Number.isFinite(v) ? v : 0;
 }
 
 async function connect() {
@@ -223,7 +423,23 @@ async function connect() {
   await port.open({ baudRate: 115200 });
   writer = port.writable.getWriter();
   log("[ui] connected");
+  setConn(true);
   readLoop();
+  requestAll();
+  onAutoSyncChanged();
+}
+
+async function disconnect(){
+  try{
+    if (autoSyncTimer){ clearInterval(autoSyncTimer); autoSyncTimer = null; }
+    if (writer){ writer.releaseLock(); writer = null; }
+    if (port){ await port.close(); port = null; 
+      setConn(false);
+      log("[ui] disconnected");
+    }
+  }catch(e){
+    log("[ui] disconnect error: " + e);
+  }
 }
 
 async function send(cmd) {
@@ -232,55 +448,82 @@ async function send(cmd) {
   await writer.write(new TextEncoder().encode(cmd + "\n"));
 }
 
-function setMC(v) {
-  motion = v;
-  send("MC" + v);
-}
-
-function setMT(v) {
-  send("MT" + v);
-}
+// ---------- SimpleFOC ----------
+function setMC(v) { motion = v; send("MC" + v); }
+function setMT(v) { send("MT" + v); }
 
 function autoSend() {
   if (!writer) return;
-
   const t = document.getElementById("target").value;
   const v = document.getElementById("vlimit").value;
   const l = document.getElementById("tlimit").value;
 
   let cmd = "M" + t;
-
   if (motion === 2) {        // angle
     if (v > 0) cmd += " " + v;
     if (l > 0) cmd += " " + l;
-  }
-  else if (motion === 1) {   // velocity
+  } else if (motion === 1) { // velocity
     if (l > 0) cmd += " " + l;
   }
-
   send(cmd);
 }
 
-/* -------- PID manual control -------- */
 function sendPID() {
   const P = document.getElementById("pidP").value;
   const I = document.getElementById("pidI").value;
   const D = document.getElementById("pidD").value;
-
   send("M P " + P);
   send("M I " + I);
   send("M D " + D);
 }
-
-/* -------- Raw command -------- */
 function sendRaw() {
   const cmd = document.getElementById("rawCmd").value.trim();
   if (cmd) send(cmd);
 }
 
-/* ================== three.js view ================== */
-const wrap = document.getElementById("view3d");
+// ---------- BalanceCore commands ----------
+function sendBC(key, val){
+  // 统一命令格式：BC <Key> <Value>
+  // 例如：BC Kp 40
+  if (!writer) return;
+  send(`BC ${key} ${val}`);
+}
+function requestBCP(){
+  // 固件实现：BC? 输出 BCP,kp,ki,kd,alpha,max_out,max_tilt,pitch_target,v2speed,yaw2diff
+  send("BC?");
+}
+function requestBS(){
+  // 固件实现：BS? 输出 BAL,... 或 BS,...（都行）
+  send("BS?");
+}
+function requestAll(){
+  requestBCP();
+  requestBS();
+}
+function sendBCPAll(){
+  sendBC("Kp", getNum("b_kp_set"));
+  sendBC("Ki", getNum("b_ki_set"));
+  sendBC("Kd", getNum("b_kd_set"));
+  sendBC("Alpha", getRange("b_alpha"));
+  sendBC("MaxOut", getRange("b_maxout"));
+  sendBC("MaxTiltDeg", getRange("b_maxtilt"));
+  sendBC("PitchTargetDeg", getRange("b_ptgt"));
+  // 如需也可加：V2Speed/Yaw2Diff（通常算出来，不建议频繁改）
+}
 
+function onAutoSyncChanged(){
+  if (autoSyncTimer){ clearInterval(autoSyncTimer); autoSyncTimer = null; }
+  const ms = parseInt(document.getElementById("autoSync").value, 10);
+  if (!writer || !ms) return;
+  autoSyncTimer = setInterval(() => {
+    // 轻量轮询：不刷屏（固件侧也建议限频回显）
+    send("BC?");
+    send("BS?");
+  }, ms);
+}
+
+// ================== three.js view ==================
+const wrap = document.getElementById("view3d");
 const scene = new THREE.Scene();
 
 const camera = new THREE.PerspectiveCamera(
@@ -297,16 +540,13 @@ renderer.setSize(wrap.clientWidth, wrap.clientHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 wrap.appendChild(renderer.domElement);
 
-// light
 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 const dir = new THREE.DirectionalLight(0xffffff, 0.8);
 dir.position.set(2, 3, 4);
 scene.add(dir);
 
-// helpers
 scene.add(new THREE.AxesHelper(0.4));
 
-// "device" model: box + arrow
 const bodyGeo = new THREE.BoxGeometry(0.5, 0.08, 0.25);
 const bodyMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.2, roughness: 0.6 });
 const deviceMesh = new THREE.Mesh(bodyGeo, bodyMat);
@@ -315,31 +555,17 @@ scene.add(deviceMesh);
 const arrowGeo = new THREE.ConeGeometry(0.04, 0.12, 24);
 const arrowMat = new THREE.MeshStandardMaterial({ color: 0x60a5fa, metalness: 0.1, roughness: 0.5 });
 const arrow = new THREE.Mesh(arrowGeo, arrowMat);
-arrow.position.set(0.25, 0, 0);          // 指向 X+
+arrow.position.set(0.25, 0, 0); // points X+
 arrow.rotation.z = -Math.PI / 2;
 deviceMesh.add(arrow);
 
-// target orientation
 let qTarget = new THREE.Quaternion();
-let qZero = new THREE.Quaternion(); // recenter baseline
+let qZero = new THREE.Quaternion();
 
 function deg2rad(d){ return d * Math.PI / 180; }
 
-// 这里是“轴映射/符号”的关键位置：如果感觉方向不对，就在这儿改
+// 轴映射/符号：如果方向不对就在这里改
 function setOrientationFromIMU(pitchDeg, rollDeg, yawDeg) {
-  // 约定：
-  // - three.js: X 右, Y 上, Z 外(朝你)
-  // - MPU 常见：pitch 绕 Y 或 X？roll 绕 X？取决于你板子朝向
-  //
-  // 先给一个常用映射：
-  // roll  -> X
-  // pitch -> Z（很多安装下更直观：抬头/低头像绕 Z 或 X，需要你按实际改）
-  // yaw   -> Y
-  //
-  // 如果你发现：
-  // - 左右倾斜没动：尝试把 roll 映射到 Z 或 Y
-  // - 前后俯仰反了：把 pitchDeg 取负
-  //
   const r = deg2rad(rollDeg);
   const p = deg2rad(pitchDeg);
   const y = deg2rad(yawDeg);
@@ -355,19 +581,14 @@ function setOrientationFromIMU(pitchDeg, rollDeg, yawDeg) {
   qTarget.copy(q);
 }
 
-// smooth
 function animate(){
   requestAnimationFrame(animate);
-
-  // slerp: 当前 -> 目标（带 recenter）
-  const qFinal = qTarget.clone().premultiply(qZero); // recenter
+  const qFinal = qTarget.clone().premultiply(qZero);
   deviceMesh.quaternion.slerp(qFinal, 0.15);
-
   renderer.render(scene, camera);
 }
 animate();
 
-// resize
 window.addEventListener("resize", () => {
   const w = wrap.clientWidth, h = wrap.clientHeight;
   camera.aspect = w / h;
@@ -375,19 +596,50 @@ window.addEventListener("resize", () => {
   renderer.setSize(w, h);
 });
 
-// recenter button: 把当前姿态当作“零点”
 document.getElementById("btnRecenter").onclick = () => {
-  // qZero * qTarget = identity  => qZero = inverse(qTarget)
   qZero.copy(qTarget).invert();
   log("[ui] recentered");
 };
 
-/* ================== Serial read & parse ================== */
+// ================== Serial read & parse ==================
 let rxBuf = "";
+
+function setTelemetry(pitchRad, prRad, uL, state, ok){
+  const pitchDeg = pitchRad * 180 / Math.PI;
+  const prDeg = prRad * 180 / Math.PI;
+  document.getElementById("t_pitch").textContent = pitchDeg.toFixed(2);
+  document.getElementById("t_pr").textContent = prDeg.toFixed(2);
+  document.getElementById("t_u").textContent = `${uL.toFixed(2)}`;
+  document.getElementById("t_state").textContent = `${state} / ${ok ? "ok" : "bad"}`;
+  setBal(ok, `state=${state} ok=${ok}`);
+}
+
+function applyBCP(kp, ki, kd, alpha, maxOut, maxTiltRad, pitchTargetRad){
+  // 更新 UI（不改变用户正在拖动的 range 的体验：这里直接 set value）
+  document.getElementById("b_kp").innerText = kp;
+  document.getElementById("b_ki").innerText = ki;
+  document.getElementById("b_kd").innerText = kd;
+
+  document.getElementById("b_alpha").value = alpha;
+  updateVal("b_alpha_v", alpha);
+
+  document.getElementById("b_maxout").value = maxOut;
+  updateVal("b_maxout_v", maxOut);
+
+  document.getElementById("b_maxtilt").value = (maxTiltRad * 180 / Math.PI);
+  updateVal("b_maxtilt_v", (maxTiltRad * 180 / Math.PI));
+
+  document.getElementById("b_ptgt").value = (pitchTargetRad * 180 / Math.PI);
+  updateVal("b_ptgt_v", (pitchTargetRad * 180 / Math.PI));
+}
+
+
 
 async function readLoop() {
   const reader = port.readable.getReader();
   const decoder = new TextDecoder();
+  let lastLogTs = 0;
+  const LOG_INTERVAL_MS = 1000;
   try {
     while (true) {
       const { value, done } = await reader.read();
@@ -396,37 +648,84 @@ async function readLoop() {
 
       rxBuf += decoder.decode(value, { stream: true });
 
-      // split by lines
       let idx;
       while ((idx = rxBuf.indexOf("\n")) >= 0) {
         const line = rxBuf.slice(0, idx).trim();
         rxBuf = rxBuf.slice(idx + 1);
-
         if (!line) continue;
 
-        // show in terminal (可选：你也可以只显示非 IMU 的行)
-        log(line);
-
-        // parse: IMU,pitch,roll,yaw
+        // 你可以选择不把 IMU 行刷进 terminal（避免刷屏）
+        // 这里默认仍打印全部，想“更干净”就把 IMU 行 log 注释掉即可
+        if (!line.startsWith("IMU,")) {
+          const now = performance.now();
+          if (now - lastLogTs >= LOG_INTERVAL_MS) {
+            log(line);
+            lastLogTs = now;
+          }
+        }
+        if (line.startsWith("ACK,")) {
+          log(line);
+        }
+        // ---- 3D: IMU,pitch,roll,yaw (deg) ----
         if (line.startsWith("IMU,")) {
           const parts = line.split(",");
           if (parts.length >= 4) {
             const pitch = parseFloat(parts[1]);
             const roll  = parseFloat(parts[2]);
             const yaw   = parseFloat(parts[3]);
-
             if (Number.isFinite(pitch) && Number.isFinite(roll) && Number.isFinite(yaw)) {
               imuText.textContent = `pitch=${pitch.toFixed(2)} roll=${roll.toFixed(2)} yaw=${yaw.toFixed(2)}`;
               setOrientationFromIMU(pitch, roll, yaw);
             }
           }
+          continue;
         }
+
+        // ---- Telemetry: BAL,pitch,pr,uL,uR,state,ok ----
+        // pitch/pr: rad / rad/s
+        if (line.startsWith("BAL,")) {
+          const p = line.split(",");
+          if (p.length >= 7) {
+            const pitch = parseFloat(p[1]);
+            const pr    = parseFloat(p[2]);
+            const uL    = parseFloat(p[3]);
+            // const uR = parseFloat(p[4]);
+            const state = parseInt(p[5], 10);
+            const ok    = parseInt(p[6], 10) === 1;
+            if ([pitch, pr, uL].every(Number.isFinite) && Number.isFinite(state)) {
+              setTelemetry(pitch, pr, uL, state, ok);
+            }
+          }
+          continue;
+        }
+
+        // ---- Params: BCP,kp,ki,kd,alpha,max_out,max_tilt,pitch_target,v2speed,yaw2diff ----
+        // max_tilt/pitch_target: rad
+        if (line.startsWith("BCP,")) {
+          const p = line.split(",");
+          if (p.length >= 8) {
+            const kp = parseFloat(p[1]);
+            const ki = parseFloat(p[2]);
+            const kd = parseFloat(p[3]);
+            const alpha = parseFloat(p[4]);
+            const maxOut = parseFloat(p[5]);
+            const maxTilt = parseFloat(p[6]);
+            const pitchTarget = parseFloat(p[7]);
+            if ([kp, ki, kd, alpha, maxOut, maxTilt, pitchTarget].every(Number.isFinite)) {
+              applyBCP(kp, ki, kd, alpha, maxOut, maxTilt, pitchTarget);
+            }
+          }
+          continue;
+        }
+
+        // 你还可以加：BS,... / MOT,... 等更多行解析
       }
     }
   } catch (e) {
     log("[ui] read error: " + e);
   } finally {
     reader.releaseLock();
+    await disconnect();
   }
 }
 
@@ -439,7 +738,17 @@ window.sendPID = sendPID;
 window.sendRaw = sendRaw;
 window.updateVal = updateVal;
 
+window.requestBCP = requestBCP;
+window.requestBS = requestBS;
+window.requestAll = requestAll;
+window.sendBC = sendBC;
+window.sendBCPAll = sendBCPAll;
+window.onAutoSyncChanged = onAutoSyncChanged;
+window.getNum = getNum;
+window.getRange = getRange;
+
 document.getElementById("btnConnect").onclick = connect;
+document.getElementById("btnDisconnect").onclick = disconnect;
 </script>
 
 </body>
