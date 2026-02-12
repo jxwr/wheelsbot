@@ -35,6 +35,25 @@ void CascadeController::getDebug(CascadeDebug& out) const {
   out = debug_;
 }
 
+void CascadeController::getFrequencyStats(FrequencyStats& out) const {
+  out.outer_hz = measured_outer_hz_;
+  out.inner_hz = measured_inner_hz_;
+}
+
+void CascadeController::getLimitStatus(LimitStatus& out) const {
+  out.velocity_saturated = velocity_saturated_;
+  out.angle_saturated = angle_saturated_;
+  out.motor_saturated = motor_saturated_;
+}
+
+void CascadeController::getRuntimeStats(RuntimeStats& out) const {
+  out = runtime_stats_;
+}
+
+void CascadeController::resetRuntimeStats() {
+  runtime_stats_ = RuntimeStats();
+}
+
 void CascadeController::setParams(const Params& p) {
   // Apply angle loop parameters
   angle_.setGains(p.angle_kp, p.angle_ki, p.angle_kd);
@@ -43,7 +62,7 @@ void CascadeController::setParams(const Params& p) {
   angle_.setIntegralLimit(p.angle_integrator_limit);
 
   // Apply velocity loop parameters (PI only, no D)
-  velocity_.setGains(p.velocity_kp, 0.0f, 0.0f);
+  velocity_.setGains(p.velocity_kp, p.velocity_ki, 0.0f);
   velocity_.setMaxTiltCommand(p.velocity_max_tilt);
 
   // Apply cascade-level parameters
@@ -63,6 +82,7 @@ void CascadeController::getParams(Params& p) const {
 
   // Get velocity loop parameters
   p.velocity_kp = velocity_.pid().getKp();
+  p.velocity_ki = velocity_.pid().getKi();
   p.velocity_max_tilt = velocity_.getMaxTiltCommand();
 
   // Get cascade-level parameters
@@ -159,30 +179,55 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
     return true;
   }
 
-  // ==== OUTER LOOP: Velocity → Pitch Command ====
-  ControlInput vel_in;
-  vel_in.reference = in.velocity_reference;
-  vel_in.measurement = in.velocity_measurement;
-  vel_in.measurement_rate = 0.0f;  // No direct acceleration measurement
-  vel_in.dt = in.dt;
-
-  ControlOutput vel_out;
-  bool vel_ok = velocity_.step(vel_in, vel_out);
-
-  // Debug: capture velocity loop state
-  debug_.velocity_error = vel_in.reference - vel_in.measurement;
-  debug_.velocity_integrator = velocity_.pid().getIntegral();
-
-  if (!vel_ok) {
-    // Outer loop failure - fall back to zero velocity command
-    vel_out.control = 0.0f;
+  // ==== FREQUENCY TRACKING ====
+  inner_step_count_++;
+  uint32_t now_ms = static_cast<uint32_t>(in.dt * 1000);  // Approximate, should use millis()
+  if (last_time_ms_ == 0) last_time_ms_ = now_ms;
+  uint32_t elapsed_ms = now_ms - last_time_ms_;
+  if (elapsed_ms >= 1000) {  // Update every second
+    measured_inner_hz_ = inner_step_count_ * 1000.0f / elapsed_ms;
+    measured_outer_hz_ = outer_step_count_ * 1000.0f / elapsed_ms;
+    inner_step_count_ = 0;
+    outer_step_count_ = 0;
+    last_time_ms_ = now_ms;
   }
 
-  // The velocity output is the pitch command (tilt to achieve velocity)
-  float pitch_reference = vel_out.control + pitch_offset_;
+  // ==== OUTER LOOP: Velocity → Pitch Command (decimated) ====
+  step_counter_++;
+  bool run_outer = (step_counter_ % outer_decimation_) == 0;
+
+  float pitch_reference;
+  if (run_outer) {
+    outer_step_count_++;
+
+    ControlInput vel_in;
+    vel_in.reference = in.velocity_reference;
+    vel_in.measurement = in.velocity_measurement;
+    vel_in.measurement_rate = 0.0f;  // No direct acceleration measurement
+    vel_in.dt = in.dt * outer_decimation_;  // Scale dt for outer loop
+
+    ControlOutput vel_out;
+    bool vel_ok = velocity_.step(vel_in, vel_out);
+
+    // Check if velocity loop saturated
+    float max_tilt_cmd = velocity_.getMaxTiltCommand();
+    velocity_saturated_ = fabsf(vel_out.control) >= max_tilt_cmd * 0.99f;
+
+    // Debug: capture velocity loop state
+    debug_.velocity_error = vel_in.reference - vel_in.measurement;
+    debug_.velocity_integrator = velocity_.pid().getIntegral();
+
+    if (!vel_ok) {
+      vel_out.control = 0.0f;
+    }
+
+    // The velocity output is the pitch command (tilt to achieve velocity)
+    last_pitch_cmd_ = vel_out.control + pitch_offset_;
+  }
+  pitch_reference = last_pitch_cmd_;
   debug_.pitch_cmd = pitch_reference;
 
-  // ==== INNER LOOP: Angle → Motor Command ====
+  // ==== INNER LOOP: Angle → Motor Command (runs every cycle) ====
   ControlInput ang_in;
   ang_in.reference = pitch_reference;
   ang_in.measurement = in.pitch_measurement;
@@ -191,6 +236,10 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
 
   ControlOutput ang_out;
   bool ang_ok = angle_.step(ang_in, ang_out);
+
+  // Check if angle loop saturated
+  float angle_out_max = angle_.pid().getOutputMax();
+  angle_saturated_ = fabsf(ang_out.control) >= angle_out_max * 0.99f;
 
   // Debug: capture angle loop state
   debug_.pitch_error = ang_in.reference - ang_in.measurement;
@@ -207,7 +256,27 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
 
   // Apply ramp to output
   float motor_cmd = ang_out.control * enable_gain_;
+
+  // Check if motor output saturated (at voltage limit)
+  float motor_limit = angle_out_max;  // Same as angle loop limit
+  motor_saturated_ = fabsf(motor_cmd) >= motor_limit * 0.99f;
+
   debug_.motor_output = motor_cmd;
+
+  // ==== RUNTIME STATISTICS ====
+  if (elapsed_ms >= 1000) {
+    runtime_stats_.total_runtime_sec++;
+    if (fault_flags_ != 0) {
+      runtime_stats_.fault_count_total++;
+    }
+  }
+  // Track min/max pitch
+  if (in.pitch_measurement > runtime_stats_.max_pitch_ever) {
+    runtime_stats_.max_pitch_ever = in.pitch_measurement;
+  }
+  if (in.pitch_measurement < runtime_stats_.min_pitch_ever) {
+    runtime_stats_.min_pitch_ever = in.pitch_measurement;
+  }
 
   // ==== OUTPUT ====
   out.left_motor = motor_cmd;

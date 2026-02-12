@@ -31,14 +31,14 @@ static bool saveCascadeParams(const CascadeController::Params& p) {
   File f = LittleFS.open(PARAMS_PATH, "w");
   if (!f) return false;
 
-  // Simple JSON serialization
+  // Simple JSON serialization (now 12 parameters with velocity_ki)
   f.printf("{\"angle_kp\":%.4f,\"angle_ki\":%.4f,\"angle_kd\":%.4f,"
            "\"angle_d_alpha\":%.3f,\"angle_max_out\":%.2f,\"angle_integrator_limit\":%.2f,"
-           "\"velocity_kp\":%.4f,\"velocity_max_tilt\":%.3f,"
+           "\"velocity_kp\":%.4f,\"velocity_ki\":%.4f,\"velocity_max_tilt\":%.3f,"
            "\"max_tilt\":%.3f,\"ramp_time\":%.3f,\"pitch_offset\":%.4f}",
            p.angle_kp, p.angle_ki, p.angle_kd,
            p.angle_d_alpha, p.angle_max_out, p.angle_integrator_limit,
-           p.velocity_kp, p.velocity_max_tilt,
+           p.velocity_kp, p.velocity_ki, p.velocity_max_tilt,
            p.max_tilt, p.ramp_time, p.pitch_offset);
   f.close();
   return true;
@@ -57,8 +57,20 @@ bool loadCascadeParams(CascadeController::Params& p) {
   buf[n] = '\0';
   f.close();
 
-  // Parse using sscanf (simple but works for fixed format)
+  // Try new format first (12 parameters with velocity_ki)
   int matched = sscanf(buf, "{\"angle_kp\":%f,\"angle_ki\":%f,\"angle_kd\":%f,"
+             "\"angle_d_alpha\":%f,\"angle_max_out\":%f,\"angle_integrator_limit\":%f,"
+             "\"velocity_kp\":%f,\"velocity_ki\":%f,\"velocity_max_tilt\":%f,"
+             "\"max_tilt\":%f,\"ramp_time\":%f,\"pitch_offset\":%f}",
+         &p.angle_kp, &p.angle_ki, &p.angle_kd,
+         &p.angle_d_alpha, &p.angle_max_out, &p.angle_integrator_limit,
+         &p.velocity_kp, &p.velocity_ki, &p.velocity_max_tilt,
+         &p.max_tilt, &p.ramp_time, &p.pitch_offset);
+
+  if (matched == 12) return true;
+
+  // Fallback to old format (11 parameters without velocity_ki)
+  matched = sscanf(buf, "{\"angle_kp\":%f,\"angle_ki\":%f,\"angle_kd\":%f,"
              "\"angle_d_alpha\":%f,\"angle_max_out\":%f,\"angle_integrator_limit\":%f,"
              "\"velocity_kp\":%f,\"velocity_max_tilt\":%f,"
              "\"max_tilt\":%f,\"ramp_time\":%f,\"pitch_offset\":%f}",
@@ -67,7 +79,12 @@ bool loadCascadeParams(CascadeController::Params& p) {
          &p.velocity_kp, &p.velocity_max_tilt,
          &p.max_tilt, &p.ramp_time, &p.pitch_offset);
 
-  return matched == 11;
+  if (matched == 11) {
+    p.velocity_ki = 0.0f;  // Default for old format
+    return true;
+  }
+
+  return false;
 }
 
 // ============================================================
@@ -82,22 +99,41 @@ static void sendTelemetry() {
   CascadeDebug dbg;
   g_cascade.getDebug(dbg);
 
-  char buf[512];
+  FrequencyStats freq;
+  g_cascade.getFrequencyStats(freq);
+
+  LimitStatus limits;
+  g_cascade.getLimitStatus(limits);
+
+  RuntimeStats runtime;
+  g_cascade.getRuntimeStats(runtime);
+
+  // Build saturation bitmask
+  uint8_t saturated = 0;
+  if (limits.velocity_saturated) saturated |= 1;
+  if (limits.angle_saturated) saturated |= 2;
+  if (limits.motor_saturated) saturated |= 4;
+
+  char buf[1024];
   snprintf(buf, sizeof(buf),
-    "{\"type\":\"telem\",\"t\":%lu,\"pitch\":%.4f,\"pr\":%.4f,"
-    "\"pitch_deg\":%.2f,\"roll_deg\":%.2f,\"yaw_deg\":%.2f,"
-    "\"err\":%.4f,\"err_i\":%.4f,\"u_bal\":%.3f,"
-    "\"u_l\":%.3f,\"u_r\":%.3f,"
-    "\"wL\":%.2f,\"wR\":%.2f,"
-    "\"state\":%d,\"fault\":%u,\"eg\":%.2f}",
+    "{\"type\":\"telem\",\"t\":%lu,"
+    "\"pitch\":%.4f,\"pitch_deg\":%.2f,\"pr\":%.4f,"
+    "\"roll_deg\":%.2f,\"yaw_deg\":%.2f,"
+    "\"vel\":%.2f,\"vel_target\":%.2f,\"vel_error\":%.4f,\"vel_i\":%.4f,\"pitch_cmd\":%.4f,"
+    "\"pitch_error\":%.4f,\"pitch_i\":%.4f,\"motor\":%.3f,"
+    "\"outer_hz\":%.1f,\"inner_hz\":%.1f,\"saturated\":%u,"
+    "\"state\":%d,\"fault\":%u,\"eg\":%.2f,"
+    "\"runtime\":%lu,\"fault_cnt\":%u,\"max_pitch\":%.3f}",
     (unsigned long)millis(),
-    dbg.pitch, dbg.pitch_rate_used,
-    (float)g_imu.pitch_deg, (float)g_imu.roll_deg, (float)g_imu.yaw_deg,
+    dbg.pitch, (float)(dbg.pitch * 180.0f / 3.14159f), dbg.pitch_rate_used,
+    (float)g_imu.roll_deg, (float)g_imu.yaw_deg,
+    dbg.velocity_error + (g_wheel.valid ? (g_wheel.wL + g_wheel.wR) * 0.5f : 0.0f),  // velocity = target - error
+    dbg.velocity_error + (g_wheel.valid ? (g_wheel.wL + g_wheel.wR) * 0.5f : 0.0f) - dbg.velocity_error,  // target
+    dbg.velocity_error, dbg.velocity_integrator, dbg.pitch_cmd,
     dbg.pitch_error, dbg.pitch_integrator, dbg.motor_output,
-    dbg.motor_output, dbg.motor_output,  // left/right same for now
-    (float)g_wheel.wL, (float)g_wheel.wR,
-    dbg.running ? 1 : 0, (unsigned)dbg.fault_flags,
-    dbg.enable_gain);
+    freq.outer_hz, freq.inner_hz, saturated,
+    dbg.running ? 1 : 0, (unsigned)dbg.fault_flags, dbg.enable_gain,
+    runtime.total_runtime_sec, runtime.fault_count_total, runtime.max_pitch_ever);
 
   ws.textAll(buf);
 }
@@ -111,7 +147,7 @@ static void sendParams(AsyncWebSocketClient* client) {
     "{\"type\":\"params\",\"cascade\":{"
     "\"angle_kp\":%.4f,\"angle_ki\":%.4f,\"angle_kd\":%.4f,"
     "\"angle_d_alpha\":%.3f,\"angle_max_out\":%.2f,\"angle_integrator_limit\":%.2f,"
-    "\"velocity_kp\":%.4f,\"velocity_max_tilt\":%.3f,"
+    "\"velocity_kp\":%.4f,\"velocity_ki\":%.4f,\"velocity_max_tilt\":%.3f,"
     "\"max_tilt\":%.3f,\"ramp_time\":%.3f,\"pitch_offset\":%.4f},"
     "\"foc\":{\"voltage_limit\":%.2f,\"velocity_limit\":%.2f,"
     "\"pid_p\":%.6f,\"pid_i\":%.6f,\"pid_d\":%.6f},"
@@ -119,7 +155,7 @@ static void sendParams(AsyncWebSocketClient* client) {
     "\"manual_target\":%.3f,\"motion_mode\":%d,\"torque_mode\":%d}}",
     p.angle_kp, p.angle_ki, p.angle_kd,
     p.angle_d_alpha, p.angle_max_out, p.angle_integrator_limit,
-    p.velocity_kp, p.velocity_max_tilt,
+    p.velocity_kp, p.velocity_ki, p.velocity_max_tilt,
     p.max_tilt, p.ramp_time, p.pitch_offset,
     (float)g_cmd.req_tlimit, (float)g_cmd.req_vlimit,
     (float)g_cmd.req_pid_p, (float)g_cmd.req_pid_i, (float)g_cmd.req_pid_d,
@@ -192,6 +228,7 @@ static void handleSetVelocity(const char* buf, AsyncWebSocketClient* client) {
   g_cascade.getParams(p);
 
   if (strcmp(key, "velocity_kp") == 0)          p.velocity_kp = val;
+  else if (strcmp(key, "velocity_ki") == 0)     p.velocity_ki = val;
   else if (strcmp(key, "velocity_max_tilt") == 0) p.velocity_max_tilt = val;
 
   g_cascade.setParams(p);

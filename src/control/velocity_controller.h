@@ -37,7 +37,7 @@ class VelocityController : public ControlLoop {
 
  private:
   PidController pid_;
-  float max_tilt_ = 0.3f;  // ~17 degrees max tilt command
+  float max_tilt_ = 0.14f;  // ~8 degrees max tilt command (reduced for stability)
 };
 
 }  // namespace control

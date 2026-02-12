@@ -3,152 +3,203 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BalanceBot Debug</title>
+<title>BalanceBot 调试控制台</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a2e;color:#e0e0e0;font-size:14px}
-.top-bar{background:#16213e;padding:8px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #0f3460}
-.top-bar h1{font-size:16px;font-weight:600;color:#e94560}
-.status{font-size:12px;padding:3px 10px;border-radius:12px;font-weight:600}
-.status.ok{background:#0a3d2a;color:#00ff88}
-.status.err{background:#3d0a0a;color:#ff4444}
-.container{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:8px;max-width:1400px;margin:0 auto}
-@media(max-width:900px){.container{grid-template-columns:1fr}}
-.card{background:#16213e;border-radius:8px;padding:12px;border:1px solid #0f3460}
-.card h2{font-size:13px;color:#e94560;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
-.row{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap}
-.row label{min-width:140px;font-size:12px;color:#a0a0c0}
-.row input[type=number]{width:90px;background:#0a0a1a;border:1px solid #333;color:#fff;padding:4px 6px;border-radius:4px;font-size:13px}
-.row input[type=number]:focus{outline:none;border-color:#e94560}
-.btn{padding:4px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600}
-.btn-send{background:#0f3460;color:#e0e0e0}.btn-send:hover{background:#1a4f8a}
-.btn-on{background:#0a3d2a;color:#00ff88}.btn-on:hover{background:#0d5a3e}
-.btn-off{background:#3d0a0a;color:#ff4444}.btn-off:hover{background:#5a0d0d}
-.btn-save{background:#e94560;color:#fff}.btn-save:hover{background:#ff6688}
+body{font-family:-apple-system,system-ui,sans-serif;background:#0d1117;color:#c9d1d9;font-size:13px}
+.top-bar{background:#161b22;padding:8px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #30363d;position:sticky;top:0;z-index:100}
+.top-bar h1{font-size:16px;font-weight:600;color:#58a6ff}
+.status{font-size:11px;padding:3px 10px;border-radius:12px;font-weight:600}
+.status.ok{background:#238636;color:#fff}
+.status.err{background:#da3633;color:#fff}
+.container{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:8px;max-width:1600px;margin:0 auto}
+@media(max-width:1200px){.container{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.container{grid-template-columns:1fr}}
+.card{background:#161b22;border-radius:8px;padding:10px;border:1px solid #30363d}
+.card h2{font-size:12px;color:#58a6ff;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;gap:8px}
+.card h2 .hz{font-size:10px;color:#8b949e;text-transform:none}
+.row{display:flex;align-items:center;gap:6px;margin-bottom:5px;flex-wrap:wrap}
+.row label{flex:1;font-size:11px;color:#8b949e;min-width:0}
+.row label .en{color:#484f58;font-size:9px;display:block}
+.row input[type=number]{width:70px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:3px 6px;border-radius:4px;font-size:12px}
+.row input[type=number]:focus{outline:none;border-color:#58a6ff}
+.btn{padding:3px 10px;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600}
+.btn-send{background:#21262d;color:#c9d1d9;border:1px solid #30363d}.btn-send:hover{background:#30363d}
+.btn-on{background:#238636;color:#fff}.btn-on:hover{background:#2ea043}
+.btn-off{background:#da3633;color:#fff}.btn-off:hover{background:#f85149}
+.btn-save{background:#8957e5;color:#fff}.btn-save:hover{background:#a371f7}
 .telem-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-.telem-item{background:#0a0a1a;padding:4px 8px;border-radius:4px;font-size:12px}
-.telem-item .lbl{color:#a0a0c0;display:block;font-size:10px}
-.telem-item .val{color:#00ff88;font-family:monospace;font-size:14px}
-.state-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700}
-.state-0{background:#333;color:#888}
-.state-1{background:#0a3d2a;color:#00ff88}
-.state-2{background:#3d0a0a;color:#ff4444}
-#three-canvas{width:100%;height:250px;background:#0a0a1a;border-radius:4px}
-.switch{position:relative;display:inline-block;width:44px;height:24px;margin-left:auto}
+.telem-item{background:#0d1117;padding:4px 8px;border-radius:4px;font-size:11px;position:relative}
+.telem-item .lbl{color:#8b949e;display:block;font-size:9px}
+.telem-item .val{color:#3fb950;font-family:monospace;font-size:13px}
+.telem-item .unit{color:#484f58;font-size:9px;margin-left:2px}
+.telem-item.warn .val{color:#f0883e}
+.telem-item.alert .val{color:#f85149}
+.telem-item.sat{background:#3d1308}
+.telem-item.sat .val{color:#f85149}
+.state-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.state-0{background:#30363d;color:#8b949e}
+.state-1{background:#238636;color:#fff}
+.state-2{background:#da3633;color:#fff}
+#three-canvas{width:100%;height:180px;background:#0d1117;border-radius:4px}
+#chart-canvas{width:100%;height:120px;background:#0d1117;border-radius:4px;margin-top:8px}
+.switch{position:relative;display:inline-block;width:40px;height:22px;margin-left:auto}
 .switch input{opacity:0;width:0;height:0}
-.slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#333;border-radius:24px;transition:.3s}
-.slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#888;border-radius:50%;transition:.3s}
-input:checked+.slider{background:#0a3d2a}
-input:checked+.slider:before{transform:translateX(20px);background:#00ff88}
+.slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#30363d;border-radius:22px;transition:.3s}
+.slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#8b949e;border-radius:50%;transition:.3s}
+input:checked+.slider{background:#238636}
+input:checked+.slider:before{transform:translateX(18px);background:#fff}
+.limit-led{display:inline-block;width:8px;height:8px;border-radius:50%;background:#30363d;margin-left:4px}
+.limit-led.on{background:#f85149;box-shadow:0 0 4px #f85149}
+.stats-row{display:flex;gap:8px;margin-top:8px;font-size:10px;color:#8b949e}
+.stats-row span{background:#0d1117;padding:2px 8px;border-radius:4px}
+.chart-legend{display:flex;gap:12px;margin-top:4px;font-size:9px;color:#8b949e}
+.chart-legend span{display:flex;align-items:center;gap:4px}
+.chart-legend .color{width:12px;height:3px;border-radius:2px}
 </style>
 </head>
 <body>
 
 <div class="top-bar">
-  <h1>BalanceBot</h1>
-  <span id="ws-status" class="status err">Disconnected</span>
+  <h1>BalanceBot 调试控制台</h1>
+  <span id="ws-status" class="status err">未连接</span>
   <span id="ap-ip" style="font-size:11px;color:#666;margin-left:auto">192.168.4.1</span>
 </div>
 
 <div class="container">
 
-<!-- Column 1: Controls -->
+<!-- Column 1: 控制开关 + 3D视图 -->
 <div>
   <div class="card">
-    <h2>Control Switches</h2>
+    <h2>控制开关</h2>
     <div class="row">
-      <label>Motor Enable</label>
+      <label>电机使能<span class="en">motor_enable</span></label>
       <label class="switch"><input type="checkbox" id="sw-motor" checked onchange="sendCtrl('motor_enable',this.checked)"><span class="slider"></span></label>
     </div>
     <div class="row">
-      <label>Balance Enable</label>
+      <label>平衡使能<span class="en">balance_enable</span></label>
       <label class="switch"><input type="checkbox" id="sw-balance" checked onchange="sendCtrl('balance_enable',this.checked)"><span class="slider"></span></label>
     </div>
   </div>
 
   <div class="card" style="margin-top:8px">
-    <h2>Angle Loop (Inner)</h2>
-    <div class="row"><label>Kp</label><input type="number" id="cascade-angle_kp" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendAngle('angle_kp')">Set</button></div>
-    <div class="row"><label>Ki</label><input type="number" id="cascade-angle_ki" step="0.1" value="0.0"><button class="btn btn-send" onclick="sendAngle('angle_ki')">Set</button></div>
-    <div class="row"><label>Kd</label><input type="number" id="cascade-angle_kd" step="0.1" value="0.6"><button class="btn btn-send" onclick="sendAngle('angle_kd')">Set</button></div>
-    <div class="row"><label>D LPF alpha</label><input type="number" id="cascade-angle_d_alpha" step="0.05" value="0.7"><button class="btn btn-send" onclick="sendAngle('angle_d_alpha')">Set</button></div>
-    <div class="row"><label>Max Out (V)</label><input type="number" id="cascade-angle_max_out" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendAngle('angle_max_out')">Set</button></div>
-    <div class="row"><label>Integrator Limit</label><input type="number" id="cascade-angle_integrator_limit" step="0.5" value="2.0"><button class="btn btn-send" onclick="sendAngle('angle_integrator_limit')">Set</button></div>
-  </div>
-
-  <div class="card" style="margin-top:8px">
-    <h2>Velocity Loop (Outer)</h2>
-    <div class="row"><label>Kp</label><input type="number" id="cascade-velocity_kp" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendVelocity('velocity_kp')">Set</button></div>
-    <div class="row"><label>Max Tilt Cmd</label><input type="number" id="cascade-velocity_max_tilt" step="0.05" value="0.3"><button class="btn btn-send" onclick="sendVelocity('velocity_max_tilt')">Set</button></div>
-  </div>
-</div>
-
-<!-- Column 2: Safety + FOC -->
-<div>
-  <div class="card">
-    <h2>Safety Limits</h2>
-    <div class="row"><label>Max Tilt (rad)</label><input type="number" id="cascade-max_tilt" step="0.05" value="0.611"><button class="btn btn-send" onclick="sendSafety('max_tilt')">Set</button></div>
-    <div class="row"><label>Ramp Time (s)</label><input type="number" id="cascade-ramp_time" step="0.1" value="0.5"><button class="btn btn-send" onclick="sendSafety('ramp_time')">Set</button></div>
-    <div class="row"><label>Pitch Offset</label><input type="number" id="cascade-pitch_offset" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendSafety('pitch_offset')">Set</button></div>
-  </div>
-
-  <div class="card" style="margin-top:8px">
-    <h2>FOC / Motor</h2>
-    <div class="row"><label>Motion Mode</label>
-      <select id="foc-motion_mode" style="background:#0a0a1a;border:1px solid #333;color:#fff;padding:4px;border-radius:4px">
-        <option value="0">Torque</option><option value="1">Velocity</option><option value="2">Angle</option>
-      </select>
-      <button class="btn btn-send" onclick="sendFoc('motion_mode')">Set</button>
-    </div>
-    <div class="row"><label>Torque Mode</label>
-      <select id="foc-torque_mode" style="background:#0a0a1a;border:1px solid #333;color:#fff;padding:4px;border-radius:4px">
-        <option value="0">Voltage</option><option value="2">FOC Current</option>
-      </select>
-      <button class="btn btn-send" onclick="sendFoc('torque_mode')">Set</button>
-    </div>
-    <div class="row"><label>Manual Target</label><input type="number" id="set-target" step="0.5" value="0"><button class="btn btn-send" onclick="sendTarget()">Set</button></div>
-    <div class="row"><label>Voltage Limit</label><input type="number" id="foc-voltage_limit" step="0.5" value="8.0"><button class="btn btn-send" onclick="sendFoc('voltage_limit')">Set</button></div>
-    <div class="row"><label>Velocity Limit</label><input type="number" id="foc-velocity_limit" step="5" value="100"><button class="btn btn-send" onclick="sendFoc('velocity_limit')">Set</button></div>
-    <div class="row"><label>PID P</label><input type="number" id="foc-pid_p" step="0.01" value="0.2"><button class="btn btn-send" onclick="sendFoc('pid_p')">Set</button></div>
-    <div class="row"><label>PID I</label><input type="number" id="foc-pid_i" step="1" value="20"><button class="btn btn-send" onclick="sendFoc('pid_i')">Set</button></div>
-    <div class="row"><label>PID D</label><input type="number" id="foc-pid_d" step="0.0001" value="0.001"><button class="btn btn-send" onclick="sendFoc('pid_d')">Set</button></div>
-  </div>
-</div>
-
-<!-- Column 3: Telemetry + 3D -->
-<div>
-  <div class="card">
-    <h2>Telemetry <span id="telem-hz" style="color:#666;font-size:11px;text-transform:none"></span></h2>
-    <div style="margin-bottom:6px">
-      State: <span id="t-state" class="state-badge state-0">DISABLED</span>
-      Fault: <span id="t-fault" style="font-family:monospace;color:#ff4444">0</span>
-    </div>
-    <div class="telem-grid">
-      <div class="telem-item"><span class="lbl">Pitch (rad)</span><span class="val" id="t-pitch">-</span></div>
-      <div class="telem-item"><span class="lbl">Pitch Rate</span><span class="val" id="t-pr">-</span></div>
-      <div class="telem-item"><span class="lbl">Pitch (deg)</span><span class="val" id="t-pitch-deg">-</span></div>
-      <div class="telem-item"><span class="lbl">Roll (deg)</span><span class="val" id="t-roll-deg">-</span></div>
-      <div class="telem-item"><span class="lbl">Yaw (deg)</span><span class="val" id="t-yaw-deg">-</span></div>
-      <div class="telem-item"><span class="lbl">Pitch Error</span><span class="val" id="t-err">-</span></div>
-      <div class="telem-item"><span class="lbl">Pitch I</span><span class="val" id="t-err-i">-</span></div>
-      <div class="telem-item"><span class="lbl">U Balance</span><span class="val" id="t-u-bal">-</span></div>
-      <div class="telem-item"><span class="lbl">U Left</span><span class="val" id="t-u-l">-</span></div>
-      <div class="telem-item"><span class="lbl">U Right</span><span class="val" id="t-u-r">-</span></div>
-      <div class="telem-item"><span class="lbl">Wheel L</span><span class="val" id="t-wL">-</span></div>
-      <div class="telem-item"><span class="lbl">Wheel R</span><span class="val" id="t-wR">-</span></div>
-      <div class="telem-item"><span class="lbl">Enable Gain</span><span class="val" id="t-eg">-</span></div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-top:8px">
-    <h2>3D Attitude</h2>
+    <h2>3D 姿态显示</h2>
     <canvas id="three-canvas"></canvas>
   </div>
 
   <div class="card" style="margin-top:8px">
-    <h2>Actions</h2>
-    <button class="btn btn-send" onclick="refreshParams()" style="margin:4px">Refresh Params</button>
-    <button class="btn btn-save" onclick="saveParams()" style="margin:4px">Save to Flash</button>
+    <h2>实时曲线 <span class="hz">最近10秒</span></h2>
+    <canvas id="chart-canvas"></canvas>
+    <div class="chart-legend">
+      <span><span class="color" style="background:#58a6ff"></span>姿态角(deg)</span>
+      <span><span class="color" style="background:#f85149"></span>电机输出(V)</span>
+    </div>
+  </div>
+</div>
+
+<!-- Column 2: 角度环参数 -->
+<div>
+  <div class="card">
+    <h2>角度环 (内环) <span class="hz">200Hz</span></h2>
+    <div class="row"><label>比例增益 Kp<span class="en">angle_kp</span></label><input type="number" id="cascade-angle_kp" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendAngle('angle_kp')">设置</button></div>
+    <div class="row"><label>积分增益 Ki<span class="en">angle_ki</span></label><input type="number" id="cascade-angle_ki" step="0.1" value="0.0"><button class="btn btn-send" onclick="sendAngle('angle_ki')">设置</button></div>
+    <div class="row"><label>微分增益 Kd<span class="en">angle_kd</span></label><input type="number" id="cascade-angle_kd" step="0.1" value="0.6"><button class="btn btn-send" onclick="sendAngle('angle_kd')">设置</button></div>
+    <div class="row"><label>微分滤波<span class="en">angle_d_alpha</span></label><input type="number" id="cascade-angle_d_alpha" step="0.05" value="0.7"><button class="btn btn-send" onclick="sendAngle('angle_d_alpha')">设置</button></div>
+    <div class="row"><label>最大输出(V)<span class="en">angle_max_out</span></label><input type="number" id="cascade-angle_max_out" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendAngle('angle_max_out')">设置</button></div>
+    <div class="row"><label>积分限幅<span class="en">angle_integrator_limit</span></label><input type="number" id="cascade-angle_integrator_limit" step="0.5" value="2.0"><button class="btn btn-send" onclick="sendAngle('angle_integrator_limit')">设置</button></div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>FOC 电机参数</h2>
+    <div class="row"><label>运动模式<span class="en">motion_mode</span></label>
+      <select id="foc-motion_mode" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:3px;border-radius:4px;font-size:11px">
+        <option value="0">力矩</option><option value="1">速度</option><option value="2">角度</option>
+      </select>
+      <button class="btn btn-send" onclick="sendFoc('motion_mode')">设置</button>
+    </div>
+    <div class="row"><label>力矩模式<span class="en">torque_mode</span></label>
+      <select id="foc-torque_mode" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:3px;border-radius:4px;font-size:11px">
+        <option value="0">电压</option><option value="2">FOC电流</option>
+      </select>
+      <button class="btn btn-send" onclick="sendFoc('torque_mode')">设置</button>
+    </div>
+    <div class="row"><label>手动目标<span class="en">manual_target</span></label><input type="number" id="set-target" step="0.5" value="0"><button class="btn btn-send" onclick="sendTarget()">设置</button></div>
+    <div class="row"><label>电压限制(V)<span class="en">voltage_limit</span></label><input type="number" id="foc-voltage_limit" step="0.5" value="8.0"><button class="btn btn-send" onclick="sendFoc('voltage_limit')">设置</button></div>
+    <div class="row"><label>速度限制<span class="en">velocity_limit</span></label><input type="number" id="foc-velocity_limit" step="5" value="100"><button class="btn btn-send" onclick="sendFoc('velocity_limit')">设置</button></div>
+  </div>
+</div>
+
+<!-- Column 3: 速度环 + 安全参数 -->
+<div>
+  <div class="card">
+    <h2>速度环 (外环) <span class="hz" id="outer-freq">50Hz</span></h2>
+    <div class="row"><label>比例增益 Kp<span class="en">velocity_kp</span></label><input type="number" id="cascade-velocity_kp" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendVelocity('velocity_kp')">设置</button></div>
+    <div class="row"><label>积分增益 Ki<span class="en">velocity_ki</span></label><input type="number" id="cascade-velocity_ki" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendVelocity('velocity_ki')">设置</button></div>
+    <div class="row"><label>最大倾角(rad)<span class="en">velocity_max_tilt</span></label><input type="number" id="cascade-velocity_max_tilt" step="0.05" value="0.14"><button class="btn btn-send" onclick="sendVelocity('velocity_max_tilt')">设置</button></div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>安全限制</h2>
+    <div class="row"><label>最大安全倾角<span class="en">max_tilt</span></label><input type="number" id="cascade-max_tilt" step="0.05" value="0.611"><button class="btn btn-send" onclick="sendSafety('max_tilt')">设置</button></div>
+    <div class="row"><label>启动斜坡时间<span class="en">ramp_time</span></label><input type="number" id="cascade-ramp_time" step="0.1" value="0.5"><button class="btn btn-send" onclick="sendSafety('ramp_time')">设置</button></div>
+    <div class="row"><label>姿态零点偏移<span class="en">pitch_offset</span></label><input type="number" id="cascade-pitch_offset" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendSafety('pitch_offset')">设置</button></div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>操作</h2>
+    <button class="btn btn-send" onclick="refreshParams()" style="margin:4px;width:45%">刷新参数</button>
+    <button class="btn btn-save" onclick="saveParams()" style="margin:4px;width:45%">保存到Flash</button>
+  </div>
+</div>
+
+<!-- Column 4: 实时数据 -->
+<div>
+  <div class="card">
+    <h2>姿态数据 <span class="hz" id="inner-freq">200Hz</span></h2>
+    <div class="telem-grid">
+      <div class="telem-item"><span class="lbl">俯仰角</span><span class="val" id="t-pitch">-</span><span class="unit">deg</span></div>
+      <div class="telem-item"><span class="lbl">俯仰角速度</span><span class="val" id="t-pr">-</span><span class="unit">deg/s</span></div>
+      <div class="telem-item"><span class="lbl">横滚角</span><span class="val" id="t-roll-deg">-</span><span class="unit">deg</span></div>
+      <div class="telem-item"><span class="lbl">偏航角</span><span class="val" id="t-yaw-deg">-</span><span class="unit">deg</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>速度环状态<span class="limit-led" id="led-vel"></span></h2>
+    <div class="telem-grid">
+      <div class="telem-item"><span class="lbl">当前速度</span><span class="val" id="t-vel">-</span><span class="unit">rad/s</span></div>
+      <div class="telem-item"><span class="lbl">目标速度</span><span class="val" id="t-vel-target">-</span><span class="unit">rad/s</span></div>
+      <div class="telem-item"><span class="lbl">速度误差</span><span class="val" id="t-vel-error">-</span></div>
+      <div class="telem-item"><span class="lbl">速度积分</span><span class="val" id="t-vel-i">-</span></div>
+      <div class="telem-item" id="t-pitch-cmd-box"><span class="lbl">姿态指令</span><span class="val" id="t-pitch-cmd">-</span><span class="unit">deg</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>角度环状态<span class="limit-led" id="led-angle"></span></h2>
+    <div class="telem-grid">
+      <div class="telem-item"><span class="lbl">角度误差</span><span class="val" id="t-pitch-error">-</span></div>
+      <div class="telem-item"><span class="lbl">角度积分</span><span class="val" id="t-pitch-i">-</span></div>
+      <div class="telem-item" id="t-motor-box"><span class="lbl">电机输出</span><span class="val" id="t-motor">-</span><span class="unit">V</span></div>
+      <div class="telem-item"><span class="lbl">启动增益</span><span class="val" id="t-eg">-</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>系统状态</h2>
+    <div style="margin-bottom:6px">
+      状态: <span id="t-state" class="state-badge state-0">未启用</span>
+      故障: <span id="t-fault" style="font-family:monospace;color:#f85149">0</span>
+    </div>
+    <div class="telem-grid">
+      <div class="telem-item"><span class="lbl">外环频率</span><span class="val" id="t-outer-hz">-</span><span class="unit">Hz</span></div>
+      <div class="telem-item"><span class="lbl">内环频率</span><span class="val" id="t-inner-hz">-</span><span class="unit">Hz</span></div>
+    </div>
+    <div class="stats-row">
+      <span>运行: <b id="t-runtime">0</b>s</span>
+      <span>故障: <b id="t-fault-cnt">0</b>次</span>
+      <span>最大角: <b id="t-max-pitch">0</b>°</span>
+    </div>
   </div>
 </div>
 
@@ -161,7 +212,7 @@ import * as THREE from 'three';
 
 const canvas = document.getElementById('three-canvas');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0a1a);
+scene.background = new THREE.Color(0x0d1117);
 
 const camera = new THREE.PerspectiveCamera(50, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
 camera.position.set(2, 1.5, 2);
@@ -179,13 +230,13 @@ scene.add(dirLight);
 
 // Robot body
 const bodyGeo = new THREE.BoxGeometry(0.6, 0.15, 0.3);
-const bodyMat = new THREE.MeshPhongMaterial({ color: 0xe94560 });
+const bodyMat = new THREE.MeshPhongMaterial({ color: 0x58a6ff });
 const body = new THREE.Mesh(bodyGeo, bodyMat);
 scene.add(body);
 
 // Wheels
 const wheelGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.06, 16);
-const wheelMat = new THREE.MeshPhongMaterial({ color: 0x444444 });
+const wheelMat = new THREE.MeshPhongMaterial({ color: 0x484f58 });
 const lWheel = new THREE.Mesh(wheelGeo, wheelMat);
 lWheel.rotation.x = Math.PI / 2;
 lWheel.position.set(0, -0.05, 0.2);
@@ -200,15 +251,15 @@ body.add(rWheel);
 scene.add(new THREE.AxesHelper(0.5));
 
 // Grid
-const grid = new THREE.GridHelper(4, 20, 0x333366, 0x222244);
+const grid = new THREE.GridHelper(4, 20, 0x30363d, 0x21262d);
 scene.add(grid);
 
 // Expose update function
 window._update3D = function(pitch, roll, yaw) {
   body.rotation.set(
-    pitch,                         // X = pitch
-    yaw * Math.PI / 180,          // Y = yaw (telem is in deg)
-    roll * Math.PI / 180           // Z = roll (telem is in deg)
+    pitch,
+    yaw * Math.PI / 180,
+    roll * Math.PI / 180
   );
 };
 
@@ -226,12 +277,62 @@ const ro = new ResizeObserver(() => {
   camera.updateProjectionMatrix();
 });
 ro.observe(canvas);
+
+// ==================== Chart ====================
+const chartCanvas = document.getElementById('chart-canvas');
+const chartCtx = chartCanvas.getContext('2d');
+const chartData = { pitch: [], motor: [] };
+const maxPoints = 200; // 10 seconds at 20Hz
+
+function resizeChart() {
+  chartCanvas.width = chartCanvas.clientWidth;
+  chartCanvas.height = chartCanvas.clientHeight;
+}
+resizeChart();
+new ResizeObserver(resizeChart).observe(chartCanvas);
+
+window._updateChart = function(pitchDeg, motorV) {
+  chartData.pitch.push(pitchDeg);
+  chartData.motor.push(motorV);
+  if (chartData.pitch.length > maxPoints) {
+    chartData.pitch.shift();
+    chartData.motor.shift();
+  }
+
+  const w = chartCanvas.width, h = chartCanvas.height;
+  chartCtx.fillStyle = '#0d1117';
+  chartCtx.fillRect(0, 0, w, h);
+
+  if (chartData.pitch.length < 2) return;
+
+  // Draw pitch curve (blue)
+  chartCtx.strokeStyle = '#58a6ff';
+  chartCtx.lineWidth = 2;
+  chartCtx.beginPath();
+  for (let i = 0; i < chartData.pitch.length; i++) {
+    const x = (i / (maxPoints - 1)) * w;
+    const y = h/2 - (chartData.pitch[i] / 45) * (h/2); // ±45 degrees full scale
+    if (i === 0) chartCtx.moveTo(x, y);
+    else chartCtx.lineTo(x, y);
+  }
+  chartCtx.stroke();
+
+  // Draw motor curve (red)
+  chartCtx.strokeStyle = '#f85149';
+  chartCtx.lineWidth = 2;
+  chartCtx.beginPath();
+  for (let i = 0; i < chartData.motor.length; i++) {
+    const x = (i / (maxPoints - 1)) * w;
+    const y = h - (chartData.motor[i] / 12) * h; // 0-12V full scale
+    if (i === 0) chartCtx.moveTo(x, y);
+    else chartCtx.lineTo(x, y);
+  }
+  chartCtx.stroke();
+};
 </script>
 
 <script>
-// ============================================================
-// WebSocket connection
-// ============================================================
+// ==================== WebSocket ====================
 let ws = null;
 let telemCount = 0;
 let lastHzTime = Date.now();
@@ -241,13 +342,13 @@ function connect() {
   ws = new WebSocket('ws://' + host + '/ws');
 
   ws.onopen = function() {
-    document.getElementById('ws-status').textContent = 'Connected';
+    document.getElementById('ws-status').textContent = '已连接';
     document.getElementById('ws-status').className = 'status ok';
     ws.send('{"type":"get_params"}');
   };
 
   ws.onclose = function() {
-    document.getElementById('ws-status').textContent = 'Disconnected';
+    document.getElementById('ws-status').textContent = '未连接';
     document.getElementById('ws-status').className = 'status err';
     setTimeout(connect, 2000);
   };
@@ -264,50 +365,77 @@ function connect() {
   };
 }
 
-// ============================================================
-// Telemetry handler
-// ============================================================
-const stateNames = ['DISABLED', 'RUNNING', 'FAULT'];
+// ==================== Telemetry Handler ====================
+const stateNames = ['未启用', '运行中', '故障'];
 
 function handleTelem(d) {
   telemCount++;
   const now = Date.now();
   if (now - lastHzTime >= 1000) {
-    document.getElementById('telem-hz').textContent = telemCount + ' Hz';
-    telemCount = 0;
     lastHzTime = now;
+    telemCount = 0;
   }
 
-  setText('t-pitch', d.pitch.toFixed(4));
-  setText('t-pr', d.pr.toFixed(3));
-  setText('t-pitch-deg', d.pitch_deg.toFixed(1));
+  // Attitude
+  setText('t-pitch', d.pitch_deg.toFixed(1));
+  setText('t-pr', (d.pr * 180 / Math.PI).toFixed(1));
   setText('t-roll-deg', d.roll_deg.toFixed(1));
   setText('t-yaw-deg', d.yaw_deg.toFixed(1));
-  setText('t-err', d.err.toFixed(4));
-  setText('t-err-i', d.err_i.toFixed(4));
-  setText('t-u-bal', d.u_bal.toFixed(3));
-  setText('t-u-l', d.u_l.toFixed(3));
-  setText('t-u-r', d.u_r.toFixed(3));
-  setText('t-wL', d.wL.toFixed(2));
-  setText('t-wR', d.wR.toFixed(2));
-  setText('t-eg', d.eg.toFixed(2));
 
+  // Velocity loop
+  setText('t-vel', d.vel.toFixed(2));
+  setText('t-vel-target', d.vel_target.toFixed(2));
+  setText('t-vel-error', d.vel_error.toFixed(3));
+  setText('t-vel-i', d.vel_i.toFixed(3));
+  setText('t-pitch-cmd', (d.pitch_cmd * 180 / Math.PI).toFixed(1));
+  setSatLed('led-vel', d.saturated & 1);
+  setSatBox('t-pitch-cmd-box', d.saturated & 1);
+
+  // Angle loop
+  setText('t-pitch-error', d.pitch_error.toFixed(3));
+  setText('t-pitch-i', d.pitch_i.toFixed(3));
+  setText('t-motor', d.motor.toFixed(2));
+  setText('t-eg', d.eg.toFixed(2));
+  setSatLed('led-angle', d.saturated & 6);
+  setSatBox('t-motor-box', d.saturated & 4);
+
+  // System status
   const stateEl = document.getElementById('t-state');
   stateEl.textContent = stateNames[d.state] || '?';
   stateEl.className = 'state-badge state-' + d.state;
   document.getElementById('t-fault').textContent = d.fault;
 
+  // Frequency
+  setText('t-outer-hz', d.outer_hz.toFixed(0));
+  setText('t-inner-hz', d.inner_hz.toFixed(0));
+  document.getElementById('outer-freq').textContent = d.outer_hz.toFixed(0) + 'Hz';
+  document.getElementById('inner-freq').textContent = d.inner_hz.toFixed(0) + 'Hz';
+
+  // Runtime stats
+  setText('t-runtime', d.runtime);
+  setText('t-fault-cnt', d.fault_cnt);
+  setText('t-max-pitch', (d.max_pitch * 180 / Math.PI).toFixed(1));
+
   // Update 3D
   if (window._update3D) {
     window._update3D(d.pitch, d.roll_deg, d.yaw_deg);
   }
+
+  // Update chart
+  if (window._updateChart) {
+    window._updateChart(d.pitch_deg, d.motor);
+  }
 }
 
 function setText(id, v) { document.getElementById(id).textContent = v; }
+function setSatLed(id, on) { document.getElementById(id).className = 'limit-led' + (on ? ' on' : ''); }
+function setSatBox(id, sat) {
+  const el = document.getElementById(id);
+  if (sat) el.classList.add('sat');
+  else el.classList.remove('sat');
+}
 
-// ============================================================
-// Params handler (fills UI fields on connect / refresh)
-// ============================================================
+// ==================== Params Handler ====================
 function handleParams(msg) {
   if (msg.cascade) {
     for (const [k, v] of Object.entries(msg.cascade)) {
@@ -334,9 +462,7 @@ function handleParams(msg) {
   }
 }
 
-// ============================================================
-// Command senders
-// ============================================================
+// ==================== Command Senders ====================
 function sendAngle(key) {
   const el = document.getElementById('cascade-' + key);
   if (ws && ws.readyState === 1 && el)
@@ -379,11 +505,11 @@ function refreshParams() {
 function saveParams() {
   if (ws && ws.readyState === 1) {
     ws.send('{"type":"save_params"}');
-    alert('Parameters saved to flash!');
+    alert('参数已保存到Flash！');
   }
 }
 
-// Auto-connect on load
+// Auto-connect
 connect();
 </script>
 

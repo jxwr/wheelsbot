@@ -77,6 +77,33 @@ struct CascadeDebug {
   float pitch;               // Current pitch measurement (rad) - for telemetry
 };
 
+// ============================================================
+// Frequency statistics for monitoring loop execution
+// ============================================================
+struct FrequencyStats {
+  float outer_hz = 0.0f;     // Outer loop actual frequency
+  float inner_hz = 0.0f;     // Inner loop actual frequency
+};
+
+// ============================================================
+// Limit status for detecting saturation
+// ============================================================
+struct LimitStatus {
+  bool velocity_saturated = false;  // Velocity loop output at limit
+  bool angle_saturated = false;     // Angle loop output at limit
+  bool motor_saturated = false;     // Final motor command at limit
+};
+
+// ============================================================
+// Runtime statistics (reset on power cycle)
+// ============================================================
+struct RuntimeStats {
+  uint32_t total_runtime_sec = 0;   // Total running time in seconds
+  uint32_t fault_count_total = 0;   // Total fault occurrences
+  float max_pitch_ever = 0.0f;      // Maximum pitch ever recorded (rad)
+  float min_pitch_ever = 0.0f;      // Minimum pitch ever recorded (rad)
+};
+
 class CascadeController {
  public:
   CascadeController();
@@ -103,14 +130,21 @@ class CascadeController {
   // Debug: get internal state for telemetry
   void getDebug(CascadeDebug& out) const;
 
+  // Statistics getters
+  void getFrequencyStats(FrequencyStats& out) const;
+  void getLimitStatus(LimitStatus& out) const;
+  void getRuntimeStats(RuntimeStats& out) const;
+  void resetRuntimeStats();  // Reset runtime statistics
+
   // Parameters for serialization (persist to flash)
   struct Params {
     float angle_kp = 6.0f, angle_ki = 0.0f, angle_kd = 0.6f;
     float angle_d_alpha = 0.7f;
     float angle_max_out = 6.0f;
     float angle_integrator_limit = 2.0f;
-    float velocity_kp = 0.0f;  // Outer loop P only
-    float velocity_max_tilt = 0.3f;  // ~17 degrees
+    float velocity_kp = 0.0f;  // Outer loop P gain
+    float velocity_ki = 0.0f;  // Outer loop I gain (NEW)
+    float velocity_max_tilt = 0.14f;  // ~8 degrees (reduced from 17°)
     float max_tilt = 35.0f * (3.14159f / 180.0f);  // Safety limit
     float ramp_time = 0.5f;
     float pitch_offset = 0.0f;
@@ -119,6 +153,10 @@ class CascadeController {
   void setParams(const Params& p);
   void getParams(Params& p) const;
   // Persistence handled at application layer (wifi_debug.cpp)
+
+  // Outer loop decimation configuration (inner / outer frequency ratio)
+  void setOuterLoopDecimation(uint32_t ratio) { outer_decimation_ = ratio; }
+  uint32_t getOuterLoopDecimation() const { return outer_decimation_; }
 
  private:
   VelocityController velocity_;
@@ -145,6 +183,27 @@ class CascadeController {
 
   // Debug state (updated each step)
   mutable CascadeDebug debug_;  // mutable to allow updates in const getDebug()
+
+  // Outer loop decimation (frequency separation)
+  uint32_t outer_decimation_ = 4;  // 4:1 ratio = 50Hz outer / 200Hz inner
+  uint32_t step_counter_ = 0;
+  float last_pitch_cmd_ = 0.0f;    // Last outer loop output (held for inner loop)
+
+  // Frequency tracking
+  mutable uint32_t last_time_ms_ = 0;
+  mutable uint32_t inner_step_count_ = 0;
+  mutable uint32_t outer_step_count_ = 0;
+  mutable float measured_outer_hz_ = 0.0f;
+  mutable float measured_inner_hz_ = 0.0f;
+
+  // Limit status tracking
+  mutable bool velocity_saturated_ = false;
+  mutable bool angle_saturated_ = false;
+  mutable bool motor_saturated_ = false;
+
+  // Runtime statistics
+  mutable RuntimeStats runtime_stats_;
+  mutable uint32_t last_stats_update_ms_ = 0;
 
   static inline float clamp(float x, float lo, float hi) {
     return (x < lo) ? lo : ((x > hi) ? hi : x);
