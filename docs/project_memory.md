@@ -36,10 +36,26 @@ Balance loop must run at >= 200Hz to maintain stability.
 
 ### Technical Debt
 
-- Current IMU uses complementary filter inline in `imuTask`
-- Future: move sensor fusion to dedicated layer (Kalman/Mahony/Madgwick)
-- Current balance controller combines angle + velocity control
-- Future: separate into cascade: Position → Velocity → Angle → Torque
+- IMU complementary filter now in HAL (MPU6050_HAL) - future: add Mahony/Madgwick fusion layer
+- Control cascade implemented: Velocity → Angle
+- Position loop not yet implemented (future: Position → Velocity → Angle)
+- PID gains need retuning after cascade separation (conservative defaults set)
+- D-term on angle loop uses filtered pitch rate - verify noise level in practice
+
+### Control Architecture (New)
+
+```
+PositionController (future)
+    ↓ pitch_cmd
+VelocityController (outer, Kv)
+    ↓ pitch_cmd
+AngleController (inner, Kp/Ki/Kd)
+    ↓ motor_voltage
+Motor Driver
+```
+
+Current: Inner loop only (velocity loop disabled with Kv=0)
+Tune inner loop first, then enable outer loop.
 
 ### Hardware Parameters
 

@@ -12,7 +12,13 @@
 #include "hardware/imu_interface.h"
 #include "hardware/encoder_interface.h"
 
+// Control Framework
+#include "control/cascade_controller.h"
+#include "control/angle_controller.h"
+#include "control/velocity_controller.h"
+
 using namespace wheelsbot::hardware;
+using namespace wheelsbot::control;
 
 // ============================================================
 // Second I2C bus
@@ -36,7 +42,12 @@ ImuShared      g_imu;
 BalanceShared  g_bal;
 WheelShared    g_wheel;
 CommandShared  g_cmd;
-bc_ctx_t       g_bc;
+bc_ctx_t       g_bc;  // Legacy - will be replaced
+
+// ============================================================
+// New Cascade Controller (replaces bc_ctx)
+// ============================================================
+CascadeController g_cascade;
 
 // ============================================================
 // Tasks
@@ -88,45 +99,41 @@ void imuTask(void* arg) {
   }
 }
 
-// balanceTask: 200Hz bc_step — uses own micros() for dt (bug fix)
+// balanceTask: 200Hz cascade control — Velocity → Angle
 void balanceTask(void* arg) {
   const TickType_t period = pdMS_TO_TICKS(5);
   TickType_t last = xTaskGetTickCount();
 
-  bc_reset(&g_bc);
+  g_cascade.reset();
   uint32_t lastUs = micros();
 
+  // Initial tuning: inner loop only for safety
+  // User can enable outer loop via WebSocket later
+  g_cascade.angleLoop().setGains(6.0f, 0.0f, 0.6f);
+  g_cascade.velocityLoop().setGains(0.0f, 0.0f, 0.0f);  // Disabled initially
+
   while (true) {
-    // own dt calculation (bug fix: was using g_dt from imuTask)
     uint32_t nowUs = micros();
     float dt = (nowUs - lastUs) * 1e-6f;
     if (!(dt > 0.f && dt < 0.1f)) dt = 0.005f;
     lastUs = nowUs;
 
-    bc_input_t in;
-    memset(&in, 0, sizeof(in));
+    // Prepare cascade input
+    CascadeInput cin;
+    cin.velocity_reference = 0.0f;  // Target: hold position (zero velocity)
+    cin.velocity_measurement = g_wheel.valid ? (g_wheel.wL + g_wheel.wR) * 0.5f : 0.0f;
+    cin.pitch_measurement = g_imu.valid ? (g_imu.pitch_deg * 3.14159f / 180.0f) : 0.0f;
+    cin.pitch_rate = g_imu.valid ? g_imu.gy : 0.0f;  // rad/s
+    cin.dt = dt;
+    cin.enabled = g_cmd.balance_enable;
+    cin.sensors_valid = g_imu.valid && g_wheel.valid;
 
-    in.time.dt = dt;
-    in.cmd.enable = g_cmd.balance_enable;
-    in.cmd.v_fwd = 0.0f;
-    in.cmd.w_yaw = 0.0f;
-    in.cmd.pitch_inject_enable = false;
-    in.cmd.pitch_inject_deg = 0.0f;
+    CascadeOutput cout;
+    g_cascade.step(cin, cout);
 
-    in.imu.valid = g_imu.valid;
-    in.imu.ax = g_imu.ax; in.imu.ay = g_imu.ay; in.imu.az = g_imu.az;
-    in.imu.gx = g_imu.gx; in.imu.gy = g_imu.gy; in.imu.gz = g_imu.gz;
-
-    in.wheel.valid = g_wheel.valid;
-    in.wheel.wL = g_wheel.wL;
-    in.wheel.wR = g_wheel.wR;
-
-    bc_output_t out;
-    bc_step(&g_bc, &in, &out);
-
-    if (out.ok && g_bc.d.state == BC_STATE_RUNNING && g_cmd.balance_enable) {
-      g_bal.left_target  = out.left;
-      g_bal.right_target = out.right;
+    if (cout.valid && g_cascade.isRunning()) {
+      g_bal.left_target  = cout.left_motor;
+      g_bal.right_target = cout.right_motor;
       g_bal.ok = true;
     } else {
       g_bal.left_target  = 0.0f;
