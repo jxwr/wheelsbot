@@ -197,7 +197,7 @@ input:checked+.slider:before{transform:translateX(18px);background:#fff}
     </div>
     <div class="stats-row">
       <span>运行: <b id="t-runtime">0</b>s</span>
-      <span>故障: <b id="t-fault-cnt">0</b>次</span>
+      <span>故障: <b id="t-fault-cnt">0</b>次 <span id="t-fault-type" style="color:#f85149;font-size:0.85em"></span></span>
       <span>最大角: <b id="t-max-pitch">0</b>°</span>
     </div>
   </div>
@@ -367,6 +367,16 @@ function connect() {
 
 // ==================== Telemetry Handler ====================
 const stateNames = ['未启用', '运行中', '故障'];
+const faultBits = [
+  [1, '倾斜过大'],
+  [2, '传感器丢失'],
+  [4, 'dt异常'],
+  [8, '已禁用'],
+];
+function decodeFault(flags) {
+  if (!flags) return '无';
+  return faultBits.filter(([b]) => flags & b).map(([,n]) => n).join(', ');
+}
 
 function handleTelem(d) {
   telemCount++;
@@ -403,7 +413,9 @@ function handleTelem(d) {
   const stateEl = document.getElementById('t-state');
   stateEl.textContent = stateNames[d.state] || '?';
   stateEl.className = 'state-badge state-' + d.state;
-  document.getElementById('t-fault').textContent = d.fault;
+  const faultEl = document.getElementById('t-fault');
+  faultEl.textContent = d.fault ? decodeFault(d.fault) : '无';
+  faultEl.style.color = d.fault ? '#f85149' : '#7ee787';
 
   // Frequency
   setText('t-outer-hz', d.outer_hz.toFixed(0));
@@ -414,6 +426,7 @@ function handleTelem(d) {
   // Runtime stats
   setText('t-runtime', d.runtime);
   setText('t-fault-cnt', d.fault_cnt);
+  if (d.fault) setText('t-fault-type', '(' + decodeFault(d.fault) + ')');
   setText('t-max-pitch', (d.max_pitch * 180 / Math.PI).toFixed(1));
 
   // Update 3D
