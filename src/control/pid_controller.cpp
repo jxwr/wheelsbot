@@ -53,7 +53,17 @@ bool PidController::step(const ControlInput& in, ControlOutput& out) {
   float i_term = ki_ * integral_;
 
   // Derivative term with low-pass filter
-  float d_raw = (error - last_error_) / in.dt;
+  // Use measurement rate if provided (less noisy), fallback to error derivative
+  float d_raw;
+  // Check if measurement_rate is provided (non-NaN and non-zero, or explicitly we can check for != 0)
+  // For this embedded system, we assume 0 means "not provided" since true 0 rate is rare
+  if (in.measurement_rate != 0.0f) {
+    // Use measurement derivative: d(error)/dt = -d(measurement)/dt (since ref is usually constant)
+    d_raw = -in.measurement_rate;
+  } else {
+    // Fallback to error derivative (noisier when reference changes)
+    d_raw = (error - last_error_) / in.dt;
+  }
   d_filtered_ = d_alpha_ * d_raw + (1.0f - d_alpha_) * d_filtered_;
   float d_term = kd_ * d_filtered_;
 

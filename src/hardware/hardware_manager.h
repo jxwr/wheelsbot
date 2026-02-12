@@ -41,9 +41,11 @@ class HardwareManager {
   // Static accessor for global instance
   static HardwareManager& instance();
 
- private:
+  // Allow construction/destruction for static global instance
   HardwareManager() = default;
   ~HardwareManager() = default;
+
+  // Prevent copying
   HardwareManager(const HardwareManager&) = delete;
   HardwareManager& operator=(const HardwareManager&) = delete;
 

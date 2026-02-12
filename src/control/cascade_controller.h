@@ -53,6 +53,29 @@ enum CascadeFault {
   CASCADE_FAULT_DISABLED = 1u << 3,
 };
 
+// ============================================================
+// Debug structure for telemetry and tuning
+// ============================================================
+struct CascadeDebug {
+  // Outer loop (velocity) state
+  float velocity_error;      // Velocity tracking error (rad/s)
+  float velocity_integrator; // Velocity PID integrator
+  float pitch_cmd;           // Output: commanded pitch (rad)
+
+  // Inner loop (angle) state
+  float pitch_error;         // Pitch tracking error (rad)
+  float pitch_integrator;    // Angle PID integrator
+  float pitch_rate_used;     // D-term input (rad/s)
+
+  // Output
+  float motor_output;        // Final motor command (V)
+  float enable_gain;         // Ramp-in gain (0..1)
+
+  // Status
+  uint32_t fault_flags;
+  bool running;
+};
+
 class CascadeController {
  public:
   CascadeController();
@@ -76,6 +99,9 @@ class CascadeController {
   bool isRunning() const { return state_ == STATE_RUNNING; }
   uint32_t getFaultFlags() const { return fault_flags_; }
 
+  // Debug: get internal state for telemetry
+  void getDebug(CascadeDebug& out) const;
+
  private:
   VelocityController velocity_;
   AngleController angle_;
@@ -98,6 +124,9 @@ class CascadeController {
   // Sensor timeout tracking
   float sensor_bad_time_ = 0.0f;
   float sensor_timeout_ = 0.2f;
+
+  // Debug state (updated each step)
+  mutable CascadeDebug debug_;  // mutable to allow updates in const getDebug()
 
   static inline float clamp(float x, float lo, float hi) {
     return (x < lo) ? lo : ((x > hi) ? hi : x);

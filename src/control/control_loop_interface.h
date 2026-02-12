@@ -11,9 +11,10 @@ namespace control {
 // ============================================================
 
 struct ControlInput {
-  float reference;    // Setpoint/target value
-  float measurement;  // Current sensor value
-  float dt;           // Time delta in seconds
+  float reference;           // Setpoint/target value
+  float measurement;         // Current sensor value
+  float measurement_rate;    // Derivative of measurement (e.g., gyro rate) - optional, used for D-term
+  float dt;                  // Time delta in seconds
 };
 
 struct ControlOutput {

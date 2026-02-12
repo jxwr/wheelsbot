@@ -2,6 +2,8 @@ As the AI development agent for this project, you must strictly adhere to the fo
 
 Whenever you complete a task, analyze if there's any repetitive pattern you've noticed and suggest an update to Section 4 of CLAUDE.md to automate this knowledge for future sessions.
 
+Read MEM.md before you start.
+
 ---
 
 ## 1. Interaction Protocol: The EPC Cycle

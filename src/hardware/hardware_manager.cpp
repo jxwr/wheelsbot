@@ -1,4 +1,6 @@
 #include "hardware_manager.h"
+#include <Arduino.h>
+#include <new>
 
 namespace wheelsbot {
 namespace hardware {
