@@ -4,9 +4,15 @@
 
 #include "pins.h"
 #include "balance_core.h"
-#include "imu_mpu6050.h"
 #include "shared_state.h"
 #include "wifi_debug.h"
+
+// Hardware Abstraction Layer
+#include "hardware/hardware_manager.h"
+#include "hardware/imu_interface.h"
+#include "hardware/encoder_interface.h"
+
+using namespace wheelsbot::hardware;
 
 // ============================================================
 // Second I2C bus
@@ -46,59 +52,34 @@ void ledTask(void* arg) {
   }
 }
 
-// imuTask: 200Hz read + complementary filter
+// imuTask: 200Hz read via HAL
 void imuTask(void* arg) {
   const TickType_t period = pdMS_TO_TICKS(5);
   TickType_t last = xTaskGetTickCount();
 
-  float roll = 0.f, pitch = 0.f, yaw = 0.f;
-  const float alpha = 0.98f;
-  uint32_t lastUs = micros();
+  ImuSensor* imu = HardwareManager::instance().imu();
+  if (!imu) {
+    Serial.println("IMU Task: no IMU available");
+    vTaskDelete(nullptr);
+    return;
+  }
 
   while (true) {
-    ImuRaw s;
-    bool ok = mpu_read14(Wire, s);
+    ImuData data;
+    bool ok = imu->read(data);
 
-    uint32_t nowUs = micros();
-    float dt = (nowUs - lastUs) * 1e-6f;
-    if (!(dt > 0.f && dt < 0.1f)) dt = 0.005f;
-    lastUs = nowUs;
-
-    if (ok) {
-      float ax_g = s.ax / 16384.0f;
-      float ay_g = s.ay / 16384.0f;
-      float az_g = s.az / 16384.0f;
-
-      float gx_dps = s.gx / 131.0f;
-      float gy_dps = s.gy / 131.0f;
-      float gz_dps = s.gz / 131.0f;
-
-      float rollAcc  = atan2f(ay_g, az_g) * 180.0f / (float)M_PI;
-      float pitchAcc = atan2f(-ax_g, sqrtf(ay_g * ay_g + az_g * az_g)) * 180.0f / (float)M_PI;
-
-      float rollGyro  = roll  + gx_dps * dt;
-      float pitchGyro = pitch + gy_dps * dt;
-      float yawGyro   = yaw   + gz_dps * dt;
-
-      roll  = alpha * rollGyro  + (1.f - alpha) * rollAcc;
-      pitch = alpha * pitchGyro + (1.f - alpha) * pitchAcc;
-      yaw   = yawGyro;
-
-      float ax = ax_g * 9.80665f;
-      float ay = ay_g * 9.80665f;
-      float az = az_g * 9.80665f;
-
-      float gx = gx_dps * (float)(M_PI / 180.0);
-      float gy = gy_dps * (float)(M_PI / 180.0);
-      float gz = gz_dps * (float)(M_PI / 180.0);
-
-      g_imu.ax = ax; g_imu.ay = ay; g_imu.az = az;
-      g_imu.gx = gx; g_imu.gy = gy; g_imu.gz = gz;
+    if (ok && data.valid) {
+      g_imu.ax = data.ax;
+      g_imu.ay = data.ay;
+      g_imu.az = data.az;
+      g_imu.gx = data.gx;
+      g_imu.gy = data.gy;
+      g_imu.gz = data.gz;
       g_imu.valid = true;
 
-      g_imu.pitch_deg = pitch;
-      g_imu.roll_deg  = roll;
-      g_imu.yaw_deg   = yaw;
+      g_imu.pitch_deg = data.pitch;
+      g_imu.roll_deg  = data.roll;
+      g_imu.yaw_deg   = data.yaw;
     } else {
       g_imu.valid = false;
     }
@@ -346,7 +327,14 @@ void setup() {
   Wire2.setClock(400000);
 
   scanBus(Wire, "Wire(3,9)");
-  mpu_init(Wire);
+  scanBus(Wire2, "Wire2(2,1)");
+
+  // Initialize hardware via HAL
+  // Left encoder on Wire (shared with IMU), Right encoder on Wire2
+  bool hw_ok = HardwareManager::instance().init(Wire, Wire, Wire2);
+  if (!hw_ok) {
+    Serial.println("Warning: Some hardware failed to initialize");
+  }
 
   // init balance core
   bc_init(&g_bc);
