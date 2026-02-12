@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BalanceBot Debug</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a2e;color:#e0e0e0;font-size:14px}
+.top-bar{background:#16213e;padding:8px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #0f3460}
+.top-bar h1{font-size:16px;font-weight:600;color:#e94560}
+.status{font-size:12px;padding:3px 10px;border-radius:12px;font-weight:600}
+.status.ok{background:#0a3d2a;color:#00ff88}
+.status.err{background:#3d0a0a;color:#ff4444}
+.container{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:8px;max-width:1400px;margin:0 auto}
+@media(max-width:900px){.container{grid-template-columns:1fr}}
+.card{background:#16213e;border-radius:8px;padding:12px;border:1px solid #0f3460}
+.card h2{font-size:13px;color:#e94560;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
+.row{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+.row label{min-width:120px;font-size:12px;color:#a0a0c0}
+.row input[type=number]{width:90px;background:#0a0a1a;border:1px solid #333;color:#fff;padding:4px 6px;border-radius:4px;font-size:13px}
+.row input[type=number]:focus{outline:none;border-color:#e94560}
+.btn{padding:4px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600}
+.btn-send{background:#0f3460;color:#e0e0e0}.btn-send:hover{background:#1a4f8a}
+.btn-on{background:#0a3d2a;color:#00ff88}.btn-on:hover{background:#0d5a3e}
+.btn-off{background:#3d0a0a;color:#ff4444}.btn-off:hover{background:#5a0d0d}
+.telem-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.telem-item{background:#0a0a1a;padding:4px 8px;border-radius:4px;font-size:12px}
+.telem-item .lbl{color:#a0a0c0;display:block;font-size:10px}
+.telem-item .val{color:#00ff88;font-family:monospace;font-size:14px}
+.state-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700}
+.state-0{background:#333;color:#888}
+.state-1{background:#0a3d2a;color:#00ff88}
+.state-2{background:#3d0a0a;color:#ff4444}
+#three-canvas{width:100%;height:250px;background:#0a0a1a;border-radius:4px}
+.switch{position:relative;display:inline-block;width:44px;height:24px;margin-left:auto}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#333;border-radius:24px;transition:.3s}
+.slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#888;border-radius:50%;transition:.3s}
+input:checked+.slider{background:#0a3d2a}
+input:checked+.slider:before{transform:translateX(20px);background:#00ff88}
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h1>BalanceBot</h1>
+  <span id="ws-status" class="status err">Disconnected</span>
+  <span id="ap-ip" style="font-size:11px;color:#666;margin-left:auto">192.168.4.1</span>
+</div>
+
+<div class="container">
+
+<!-- Column 1: Controls -->
+<div>
+  <div class="card">
+    <h2>Control Switches</h2>
+    <div class="row">
+      <label>Motor Enable</label>
+      <label class="switch"><input type="checkbox" id="sw-motor" checked onchange="sendCtrl('motor_enable',this.checked)"><span class="slider"></span></label>
+    </div>
+    <div class="row">
+      <label>Balance Enable</label>
+      <label class="switch"><input type="checkbox" id="sw-balance" checked onchange="sendCtrl('balance_enable',this.checked)"><span class="slider"></span></label>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>Inner Loop PD</h2>
+    <div class="row"><label>Kp</label><input type="number" id="bc-Kp" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendBc('Kp')">Set</button></div>
+    <div class="row"><label>Ki</label><input type="number" id="bc-Ki" step="0.1" value="0.0"><button class="btn btn-send" onclick="sendBc('Ki')">Set</button></div>
+    <div class="row"><label>Kd</label><input type="number" id="bc-Kd" step="0.1" value="0.6"><button class="btn btn-send" onclick="sendBc('Kd')">Set</button></div>
+    <div class="row"><label>D LPF alpha</label><input type="number" id="bc-d_lpf_alpha" step="0.05" value="0.7"><button class="btn btn-send" onclick="sendBc('d_lpf_alpha')">Set</button></div>
+    <div class="row"><label>Comp alpha</label><input type="number" id="bc-comp_alpha" step="0.01" value="0.98"><button class="btn btn-send" onclick="sendBc('comp_alpha')">Set</button></div>
+    <div class="row"><label>Max Out (V)</label><input type="number" id="bc-max_out" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendBc('max_out')">Set</button></div>
+    <div class="row"><label>Pitch Target</label><input type="number" id="bc-pitch_target" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendBc('pitch_target')">Set</button></div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>Outer Loop</h2>
+    <div class="row"><label>Kv</label><input type="number" id="bc-Kv" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendBc('Kv')">Set</button></div>
+    <div class="row"><label>Kx</label><input type="number" id="bc-Kx" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendBc('Kx')">Set</button></div>
+    <div class="row"><label>Tilt Cmd Max</label><input type="number" id="bc-tilt_cmd_max" step="0.05" value="0.3"><button class="btn btn-send" onclick="sendBc('tilt_cmd_max')">Set</button></div>
+    <div class="row"><label>Bias Learn K</label><input type="number" id="bc-bias_learn_k" step="0.001" value="0.0"><button class="btn btn-send" onclick="sendBc('bias_learn_k')">Set</button></div>
+    <div class="row"><label>V Gate</label><input type="number" id="bc-v_gate" step="0.05" value="0.25"><button class="btn btn-send" onclick="sendBc('v_gate')">Set</button></div>
+    <div class="row"><label>W Gate</label><input type="number" id="bc-w_gate" step="0.05" value="0.15"><button class="btn btn-send" onclick="sendBc('w_gate')">Set</button></div>
+  </div>
+</div>
+
+<!-- Column 2: Safety + FOC + Geometry -->
+<div>
+  <div class="card">
+    <h2>Safety Limits</h2>
+    <div class="row"><label>Max Tilt (rad)</label><input type="number" id="bc-max_tilt" step="0.05" value="0.611"><button class="btn btn-send" onclick="sendBc('max_tilt')">Set</button></div>
+    <div class="row"><label>Sensor Timeout</label><input type="number" id="bc-sensor_timeout_s" step="0.05" value="0.2"><button class="btn btn-send" onclick="sendBc('sensor_timeout_s')">Set</button></div>
+    <div class="row"><label>Ramp Time (s)</label><input type="number" id="bc-ramp_time_s" step="0.1" value="0.5"><button class="btn btn-send" onclick="sendBc('ramp_time_s')">Set</button></div>
+    <div class="row"><label>Integrator Limit</label><input type="number" id="bc-integrator_limit" step="0.5" value="2.0"><button class="btn btn-send" onclick="sendBc('integrator_limit')">Set</button></div>
+    <div class="row"><label>Deadband</label><input type="number" id="bc-deadband" step="0.001" value="0.0"><button class="btn btn-send" onclick="sendBc('deadband')">Set</button></div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>FOC / Motor</h2>
+    <div class="row"><label>Motion Mode</label>
+      <select id="foc-motion_mode" style="background:#0a0a1a;border:1px solid #333;color:#fff;padding:4px;border-radius:4px">
+        <option value="0">Torque</option><option value="1">Velocity</option><option value="2">Angle</option>
+      </select>
+      <button class="btn btn-send" onclick="sendFoc('motion_mode')">Set</button>
+    </div>
+    <div class="row"><label>Torque Mode</label>
+      <select id="foc-torque_mode" style="background:#0a0a1a;border:1px solid #333;color:#fff;padding:4px;border-radius:4px">
+        <option value="0">Voltage</option><option value="2">FOC Current</option>
+      </select>
+      <button class="btn btn-send" onclick="sendFoc('torque_mode')">Set</button>
+    </div>
+    <div class="row"><label>Manual Target</label><input type="number" id="set-target" step="0.5" value="0"><button class="btn btn-send" onclick="sendTarget()">Set</button></div>
+    <div class="row"><label>Voltage Limit</label><input type="number" id="foc-voltage_limit" step="0.5" value="8.0"><button class="btn btn-send" onclick="sendFoc('voltage_limit')">Set</button></div>
+    <div class="row"><label>Velocity Limit</label><input type="number" id="foc-velocity_limit" step="5" value="100"><button class="btn btn-send" onclick="sendFoc('velocity_limit')">Set</button></div>
+    <div class="row"><label>PID P</label><input type="number" id="foc-pid_p" step="0.01" value="0.2"><button class="btn btn-send" onclick="sendFoc('pid_p')">Set</button></div>
+    <div class="row"><label>PID I</label><input type="number" id="foc-pid_i" step="1" value="20"><button class="btn btn-send" onclick="sendFoc('pid_i')">Set</button></div>
+    <div class="row"><label>PID D</label><input type="number" id="foc-pid_d" step="0.0001" value="0.001"><button class="btn btn-send" onclick="sendFoc('pid_d')">Set</button></div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>Geometry</h2>
+    <div class="row"><label>v2speed Gain</label><input type="number" id="bc-v2speed_gain" step="1" value="28.57"><button class="btn btn-send" onclick="sendBc('v2speed_gain')">Set</button></div>
+    <div class="row"><label>yaw2diff Gain</label><input type="number" id="bc-yaw2diff_gain" step="0.1" value="2.57"><button class="btn btn-send" onclick="sendBc('yaw2diff_gain')">Set</button></div>
+  </div>
+</div>
+
+<!-- Column 3: Telemetry + 3D -->
+<div>
+  <div class="card">
+    <h2>Telemetry <span id="telem-hz" style="color:#666;font-size:11px;text-transform:none"></span></h2>
+    <div style="margin-bottom:6px">
+      State: <span id="t-state" class="state-badge state-0">DISABLED</span>
+      Fault: <span id="t-fault" style="font-family:monospace;color:#ff4444">0</span>
+    </div>
+    <div class="telem-grid">
+      <div class="telem-item"><span class="lbl">Pitch (rad)</span><span class="val" id="t-pitch">-</span></div>
+      <div class="telem-item"><span class="lbl">Pitch Rate</span><span class="val" id="t-pr">-</span></div>
+      <div class="telem-item"><span class="lbl">Pitch (deg)</span><span class="val" id="t-pitch-deg">-</span></div>
+      <div class="telem-item"><span class="lbl">Roll (deg)</span><span class="val" id="t-roll-deg">-</span></div>
+      <div class="telem-item"><span class="lbl">Yaw (deg)</span><span class="val" id="t-yaw-deg">-</span></div>
+      <div class="telem-item"><span class="lbl">Error</span><span class="val" id="t-err">-</span></div>
+      <div class="telem-item"><span class="lbl">Error I</span><span class="val" id="t-err-i">-</span></div>
+      <div class="telem-item"><span class="lbl">U Balance</span><span class="val" id="t-u-bal">-</span></div>
+      <div class="telem-item"><span class="lbl">U Left</span><span class="val" id="t-u-l">-</span></div>
+      <div class="telem-item"><span class="lbl">U Right</span><span class="val" id="t-u-r">-</span></div>
+      <div class="telem-item"><span class="lbl">Wheel L</span><span class="val" id="t-wL">-</span></div>
+      <div class="telem-item"><span class="lbl">Wheel R</span><span class="val" id="t-wR">-</span></div>
+      <div class="telem-item"><span class="lbl">Enable Gain</span><span class="val" id="t-eg">-</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>3D Attitude</h2>
+    <canvas id="three-canvas"></canvas>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>Actions</h2>
+    <button class="btn btn-send" onclick="refreshParams()" style="margin:4px">Refresh Params</button>
+  </div>
+</div>
+
+</div>
+
+<!-- Three.js from LittleFS (gzipped) -->
+<script type="importmap">{"imports":{"three":"/three.module.js"}}</script>
+<script type="module">
+import * as THREE from 'three';
+
+const canvas = document.getElementById('three-canvas');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a1a);
+
+const camera = new THREE.PerspectiveCamera(50, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
+camera.position.set(2, 1.5, 2);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+
+// Lights
+scene.add(new THREE.AmbientLight(0x404040, 2));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+dirLight.position.set(3, 5, 3);
+scene.add(dirLight);
+
+// Robot body
+const bodyGeo = new THREE.BoxGeometry(0.6, 0.15, 0.3);
+const bodyMat = new THREE.MeshPhongMaterial({ color: 0xe94560 });
+const body = new THREE.Mesh(bodyGeo, bodyMat);
+scene.add(body);
+
+// Wheels
+const wheelGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.06, 16);
+const wheelMat = new THREE.MeshPhongMaterial({ color: 0x444444 });
+const lWheel = new THREE.Mesh(wheelGeo, wheelMat);
+lWheel.rotation.x = Math.PI / 2;
+lWheel.position.set(0, -0.05, 0.2);
+body.add(lWheel);
+
+const rWheel = new THREE.Mesh(wheelGeo, wheelMat);
+rWheel.rotation.x = Math.PI / 2;
+rWheel.position.set(0, -0.05, -0.2);
+body.add(rWheel);
+
+// Axes helper
+scene.add(new THREE.AxesHelper(0.5));
+
+// Grid
+const grid = new THREE.GridHelper(4, 20, 0x333366, 0x222244);
+scene.add(grid);
+
+// Expose update function
+window._update3D = function(pitch, roll, yaw) {
+  body.rotation.set(
+    pitch,                         // X = pitch
+    yaw * Math.PI / 180,          // Y = yaw (telem is in deg)
+    roll * Math.PI / 180           // Z = roll (telem is in deg)
+  );
+};
+
+function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+}
+animate();
+
+// Handle resize
+const ro = new ResizeObserver(() => {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+});
+ro.observe(canvas);
+</script>
+
+<script>
+// ============================================================
+// WebSocket connection
+// ============================================================
+let ws = null;
+let telemCount = 0;
+let lastHzTime = Date.now();
+
+function connect() {
+  const host = location.hostname || '192.168.4.1';
+  ws = new WebSocket('ws://' + host + '/ws');
+
+  ws.onopen = function() {
+    document.getElementById('ws-status').textContent = 'Connected';
+    document.getElementById('ws-status').className = 'status ok';
+    ws.send('{"type":"get_params"}');
+  };
+
+  ws.onclose = function() {
+    document.getElementById('ws-status').textContent = 'Disconnected';
+    document.getElementById('ws-status').className = 'status err';
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = function() { ws.close(); };
+
+  ws.onmessage = function(evt) {
+    try {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === 'telem') handleTelem(msg);
+      else if (msg.type === 'params') handleParams(msg);
+      else if (msg.type === 'ack') { /* ok */ }
+    } catch(e) {}
+  };
+}
+
+// ============================================================
+// Telemetry handler
+// ============================================================
+const stateNames = ['DISABLED', 'RUNNING', 'FAULT'];
+
+function handleTelem(d) {
+  telemCount++;
+  const now = Date.now();
+  if (now - lastHzTime >= 1000) {
+    document.getElementById('telem-hz').textContent = telemCount + ' Hz';
+    telemCount = 0;
+    lastHzTime = now;
+  }
+
+  setText('t-pitch', d.pitch.toFixed(4));
+  setText('t-pr', d.pr.toFixed(3));
+  setText('t-pitch-deg', d.pitch_deg.toFixed(1));
+  setText('t-roll-deg', d.roll_deg.toFixed(1));
+  setText('t-yaw-deg', d.yaw_deg.toFixed(1));
+  setText('t-err', d.err.toFixed(4));
+  setText('t-err-i', d.err_i.toFixed(4));
+  setText('t-u-bal', d.u_bal.toFixed(3));
+  setText('t-u-l', d.u_l.toFixed(3));
+  setText('t-u-r', d.u_r.toFixed(3));
+  setText('t-wL', d.wL.toFixed(2));
+  setText('t-wR', d.wR.toFixed(2));
+  setText('t-eg', d.eg.toFixed(2));
+
+  const stateEl = document.getElementById('t-state');
+  stateEl.textContent = stateNames[d.state] || '?';
+  stateEl.className = 'state-badge state-' + d.state;
+  document.getElementById('t-fault').textContent = d.fault;
+
+  // Update 3D
+  if (window._update3D) {
+    window._update3D(d.pitch, d.roll_deg, d.yaw_deg);
+  }
+}
+
+function setText(id, v) { document.getElementById(id).textContent = v; }
+
+// ============================================================
+// Params handler (fills UI fields on connect / refresh)
+// ============================================================
+function handleParams(msg) {
+  if (msg.bc) {
+    for (const [k, v] of Object.entries(msg.bc)) {
+      const el = document.getElementById('bc-' + k);
+      if (el) el.value = v;
+    }
+  }
+  if (msg.foc) {
+    for (const [k, v] of Object.entries(msg.foc)) {
+      const el = document.getElementById('foc-' + k);
+      if (el) {
+        if (el.tagName === 'SELECT') el.value = String(Math.round(v));
+        else el.value = v;
+      }
+    }
+  }
+  if (msg.ctrl) {
+    if (msg.ctrl.motor_enable !== undefined)
+      document.getElementById('sw-motor').checked = msg.ctrl.motor_enable;
+    if (msg.ctrl.balance_enable !== undefined)
+      document.getElementById('sw-balance').checked = msg.ctrl.balance_enable;
+    if (msg.ctrl.manual_target !== undefined)
+      document.getElementById('set-target').value = msg.ctrl.manual_target;
+  }
+}
+
+// ============================================================
+// Command senders
+// ============================================================
+function sendBc(key) {
+  const el = document.getElementById('bc-' + key);
+  if (ws && ws.readyState === 1 && el)
+    ws.send(JSON.stringify({ type: 'set_bc', key: key, value: parseFloat(el.value) }));
+}
+
+function sendFoc(key) {
+  const el = document.getElementById('foc-' + key);
+  if (ws && ws.readyState === 1 && el)
+    ws.send(JSON.stringify({ type: 'set_foc', key: key, value: parseFloat(el.value) }));
+}
+
+function sendCtrl(key, val) {
+  if (ws && ws.readyState === 1)
+    ws.send(JSON.stringify({ type: 'set_ctrl', key: key, value: val }));
+}
+
+function sendTarget() {
+  const el = document.getElementById('set-target');
+  if (ws && ws.readyState === 1 && el)
+    ws.send(JSON.stringify({ type: 'set_target', value: parseFloat(el.value) }));
+}
+
+function refreshParams() {
+  if (ws && ws.readyState === 1) ws.send('{"type":"get_params"}');
+}
+
+// Auto-connect on load
+connect();
+</script>
+
+</body>
+</html>
