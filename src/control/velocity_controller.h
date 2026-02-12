@@ -29,9 +29,11 @@ class VelocityController : public ControlLoop {
 
   // Access underlying PID for direct tuning
   PidController& pid() { return pid_; }
+  const PidController& pid() const { return pid_; }
 
   // Set maximum tilt command (safety limit)
   void setMaxTiltCommand(float max_tilt_rad) { max_tilt_ = max_tilt_rad; }
+  float getMaxTiltCommand() const { return max_tilt_; }
 
  private:
   PidController pid_;

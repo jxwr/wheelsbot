@@ -29,6 +29,15 @@ class PidController : public ControlLoop {
   float getIntegral() const { return integral_; }
   float getLastError() const { return last_error_; }
 
+  // Getters for persistence
+  float getKp() const { return kp_; }
+  float getKi() const { return ki_; }
+  float getKd() const { return kd_; }
+  float getDFilterAlpha() const { return d_alpha_; }
+  float getOutputMax() const { return out_max_; }
+  float getOutputMin() const { return out_min_; }
+  float getIntegralLimit() const { return integral_limit_; }
+
  private:
   const char* name_;
 

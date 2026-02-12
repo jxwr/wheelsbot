@@ -74,6 +74,7 @@ struct CascadeDebug {
   // Status
   uint32_t fault_flags;
   bool running;
+  float pitch;               // Current pitch measurement (rad) - for telemetry
 };
 
 class CascadeController {
@@ -101,6 +102,23 @@ class CascadeController {
 
   // Debug: get internal state for telemetry
   void getDebug(CascadeDebug& out) const;
+
+  // Parameters for serialization (persist to flash)
+  struct Params {
+    float angle_kp = 6.0f, angle_ki = 0.0f, angle_kd = 0.6f;
+    float angle_d_alpha = 0.7f;
+    float angle_max_out = 6.0f;
+    float angle_integrator_limit = 2.0f;
+    float velocity_kp = 0.0f;  // Outer loop P only
+    float velocity_max_tilt = 0.3f;  // ~17 degrees
+    float max_tilt = 35.0f * (3.14159f / 180.0f);  // Safety limit
+    float ramp_time = 0.5f;
+    float pitch_offset = 0.0f;
+  };
+
+  void setParams(const Params& p);
+  void getParams(Params& p) const;
+  // Persistence handled at application layer (wifi_debug.cpp)
 
  private:
   VelocityController velocity_;

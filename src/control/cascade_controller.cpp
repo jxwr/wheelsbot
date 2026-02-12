@@ -5,6 +5,7 @@
 namespace wheelsbot {
 namespace control {
 
+
 CascadeController::CascadeController() { reset(); }
 
 void CascadeController::reset() {
@@ -34,6 +35,42 @@ void CascadeController::getDebug(CascadeDebug& out) const {
   out = debug_;
 }
 
+void CascadeController::setParams(const Params& p) {
+  // Apply angle loop parameters
+  angle_.setGains(p.angle_kp, p.angle_ki, p.angle_kd);
+  angle_.setDFilterAlpha(p.angle_d_alpha);
+  angle_.setOutputLimits(-p.angle_max_out, p.angle_max_out);
+  angle_.setIntegralLimit(p.angle_integrator_limit);
+
+  // Apply velocity loop parameters (PI only, no D)
+  velocity_.setGains(p.velocity_kp, 0.0f, 0.0f);
+  velocity_.setMaxTiltCommand(p.velocity_max_tilt);
+
+  // Apply cascade-level parameters
+  max_tilt_ = p.max_tilt;
+  ramp_time_ = p.ramp_time;
+  pitch_offset_ = p.pitch_offset;
+}
+
+void CascadeController::getParams(Params& p) const {
+  // Get angle loop parameters
+  p.angle_kp = angle_.pid().getKp();
+  p.angle_ki = angle_.pid().getKi();
+  p.angle_kd = angle_.pid().getKd();
+  p.angle_d_alpha = angle_.pid().getDFilterAlpha();
+  p.angle_max_out = angle_.pid().getOutputMax();
+  p.angle_integrator_limit = angle_.pid().getIntegralLimit();
+
+  // Get velocity loop parameters
+  p.velocity_kp = velocity_.pid().getKp();
+  p.velocity_max_tilt = velocity_.getMaxTiltCommand();
+
+  // Get cascade-level parameters
+  p.max_tilt = max_tilt_;
+  p.ramp_time = ramp_time_;
+  p.pitch_offset = pitch_offset_;
+}
+
 bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
   // Default output
   out.left_motor = 0.0f;
@@ -53,6 +90,7 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
   debug_.enable_gain = enable_gain_;
   debug_.fault_flags = fault_flags_;
   debug_.running = false;
+  debug_.pitch = in.pitch_measurement;  // Record current pitch for telemetry
 
   // Validate dt
   if (!(in.dt > 0.0f && in.dt < 0.1f)) {

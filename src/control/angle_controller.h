@@ -31,6 +31,7 @@ class AngleController : public ControlLoop {
 
   // Access underlying PID for direct tuning
   PidController& pid() { return pid_; }
+  const PidController& pid() const { return pid_; }
 
  private:
   PidController pid_;
