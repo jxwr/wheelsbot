@@ -52,10 +52,4 @@ struct CommandShared {
   volatile float req_pid_d       = 0.001f;
 };
 
-// ============================================================
-// Global instances (defined in main.cpp)
-// ============================================================
-extern ImuShared      g_imu;
-extern BalanceShared  g_bal;
-extern WheelShared    g_wheel;
-extern CommandShared  g_cmd;
+// Instances live in AppContext — no global externs

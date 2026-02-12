@@ -2,7 +2,9 @@
 
 #include "control/cascade_controller.h"
 
-void wifi_debug_init();
+struct AppContext;  // forward declaration
+
+void wifi_debug_init(AppContext& ctx);
 void wifiDebugTask(void* arg);
 
 // Parameter persistence helpers

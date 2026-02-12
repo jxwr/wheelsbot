@@ -5,11 +5,15 @@
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 
-#include "shared_state.h"
-#include "control/cascade_controller.h"
+#include "app_context.h"
 #include "pins.h"
 
 using namespace wheelsbot::control;
+
+// ============================================================
+// File-scope context pointer (set at runtime by wifi_debug_init)
+// ============================================================
+static AppContext* s_ctx = nullptr;
 
 // ============================================================
 // Server objects
@@ -91,22 +95,27 @@ bool loadCascadeParams(CascadeController::Params& p) {
 // JSON helpers (no ArduinoJson — hand-rolled with snprintf)
 // ============================================================
 
-extern CascadeController g_cascade;
 
 static void sendTelemetry() {
-  if (ws.count() == 0) return;
+  if (ws.count() == 0 || !s_ctx) return;
+
+  // Skip this frame if any client's send queue is full.
+  // Prevents "Too many messages queued" when WiFi is slow or tab is in background.
+  for (auto& c : ws.getClients()) {
+    if (c->status() == WS_CONNECTED && !c->canSend()) return;
+  }
 
   CascadeDebug dbg;
-  g_cascade.getDebug(dbg);
+  s_ctx->cascade.getDebug(dbg);
 
   FrequencyStats freq;
-  g_cascade.getFrequencyStats(freq);
+  s_ctx->cascade.getFrequencyStats(freq);
 
   LimitStatus limits;
-  g_cascade.getLimitStatus(limits);
+  s_ctx->cascade.getLimitStatus(limits);
 
   RuntimeStats runtime;
-  g_cascade.getRuntimeStats(runtime);
+  s_ctx->cascade.getRuntimeStats(runtime);
 
   // Build saturation bitmask
   uint8_t saturated = 0;
@@ -126,9 +135,9 @@ static void sendTelemetry() {
     "\"runtime\":%lu,\"fault_cnt\":%u,\"max_pitch\":%.3f}",
     (unsigned long)millis(),
     dbg.pitch, (float)(dbg.pitch * 180.0f / 3.14159f), dbg.pitch_rate_used,
-    (float)g_imu.roll_deg, (float)g_imu.yaw_deg,
-    dbg.velocity_error + (g_wheel.valid ? (g_wheel.wL + g_wheel.wR) * 0.5f : 0.0f),  // velocity = target - error
-    dbg.velocity_error + (g_wheel.valid ? (g_wheel.wL + g_wheel.wR) * 0.5f : 0.0f) - dbg.velocity_error,  // target
+    (float)s_ctx->imu_state.roll_deg, (float)s_ctx->imu_state.yaw_deg,
+    dbg.velocity_error + (s_ctx->wheel_state.valid ? (s_ctx->wheel_state.wL + s_ctx->wheel_state.wR) * 0.5f : 0.0f),
+    dbg.velocity_error + (s_ctx->wheel_state.valid ? (s_ctx->wheel_state.wL + s_ctx->wheel_state.wR) * 0.5f : 0.0f) - dbg.velocity_error,
     dbg.velocity_error, dbg.velocity_integrator, dbg.pitch_cmd,
     dbg.pitch_error, dbg.pitch_integrator, dbg.motor_output,
     freq.outer_hz, freq.inner_hz, saturated,
@@ -139,8 +148,9 @@ static void sendTelemetry() {
 }
 
 static void sendParams(AsyncWebSocketClient* client) {
+  if (!s_ctx) return;
   CascadeController::Params p;
-  g_cascade.getParams(p);
+  s_ctx->cascade.getParams(p);
 
   char buf[1024];
   snprintf(buf, sizeof(buf),
@@ -157,12 +167,12 @@ static void sendParams(AsyncWebSocketClient* client) {
     p.angle_d_alpha, p.angle_max_out, p.angle_integrator_limit,
     p.velocity_kp, p.velocity_ki, p.velocity_max_tilt,
     p.max_tilt, p.ramp_time, p.pitch_offset,
-    (float)g_cmd.req_tlimit, (float)g_cmd.req_vlimit,
-    (float)g_cmd.req_pid_p, (float)g_cmd.req_pid_i, (float)g_cmd.req_pid_d,
-    g_cmd.motor_enable  ? "true" : "false",
-    g_cmd.balance_enable ? "true" : "false",
-    (float)g_cmd.manual_target,
-    (int)g_cmd.req_motion_mode, (int)g_cmd.req_torque_mode);
+    (float)s_ctx->cmd_state.req_tlimit, (float)s_ctx->cmd_state.req_vlimit,
+    (float)s_ctx->cmd_state.req_pid_p, (float)s_ctx->cmd_state.req_pid_i, (float)s_ctx->cmd_state.req_pid_d,
+    s_ctx->cmd_state.motor_enable  ? "true" : "false",
+    s_ctx->cmd_state.balance_enable ? "true" : "false",
+    (float)s_ctx->cmd_state.manual_target,
+    (int)s_ctx->cmd_state.req_motion_mode, (int)s_ctx->cmd_state.req_torque_mode);
 
   client->text(buf);
 }
@@ -198,12 +208,13 @@ static bool parseKey(const char* buf, char* out, size_t maxlen) {
 }
 
 static void handleSetAngle(const char* buf, AsyncWebSocketClient* client) {
+  if (!s_ctx) return;
   char key[32];
   if (!parseKey(buf, key, sizeof(key))) return;
   float val = parseValue(buf);
 
   CascadeController::Params p;
-  g_cascade.getParams(p);
+  s_ctx->cascade.getParams(p);
 
   if      (strcmp(key, "angle_kp") == 0)               p.angle_kp = val;
   else if (strcmp(key, "angle_ki") == 0)               p.angle_ki = val;
@@ -212,7 +223,7 @@ static void handleSetAngle(const char* buf, AsyncWebSocketClient* client) {
   else if (strcmp(key, "angle_max_out") == 0)          p.angle_max_out = val;
   else if (strcmp(key, "angle_integrator_limit") == 0) p.angle_integrator_limit = val;
 
-  g_cascade.setParams(p);
+  s_ctx->cascade.setParams(p);
 
   char ack[128];
   snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_angle\",\"key\":\"%s\",\"value\":%.4f}", key, val);
@@ -220,18 +231,19 @@ static void handleSetAngle(const char* buf, AsyncWebSocketClient* client) {
 }
 
 static void handleSetVelocity(const char* buf, AsyncWebSocketClient* client) {
+  if (!s_ctx) return;
   char key[32];
   if (!parseKey(buf, key, sizeof(key))) return;
   float val = parseValue(buf);
 
   CascadeController::Params p;
-  g_cascade.getParams(p);
+  s_ctx->cascade.getParams(p);
 
   if (strcmp(key, "velocity_kp") == 0)          p.velocity_kp = val;
   else if (strcmp(key, "velocity_ki") == 0)     p.velocity_ki = val;
   else if (strcmp(key, "velocity_max_tilt") == 0) p.velocity_max_tilt = val;
 
-  g_cascade.setParams(p);
+  s_ctx->cascade.setParams(p);
 
   char ack[128];
   snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_velocity\",\"key\":\"%s\",\"value\":%.4f}", key, val);
@@ -239,18 +251,19 @@ static void handleSetVelocity(const char* buf, AsyncWebSocketClient* client) {
 }
 
 static void handleSetSafety(const char* buf, AsyncWebSocketClient* client) {
+  if (!s_ctx) return;
   char key[32];
   if (!parseKey(buf, key, sizeof(key))) return;
   float val = parseValue(buf);
 
   CascadeController::Params p;
-  g_cascade.getParams(p);
+  s_ctx->cascade.getParams(p);
 
   if      (strcmp(key, "max_tilt") == 0)      p.max_tilt = val;
   else if (strcmp(key, "ramp_time") == 0)     p.ramp_time = val;
   else if (strcmp(key, "pitch_offset") == 0)  p.pitch_offset = val;
 
-  g_cascade.setParams(p);
+  s_ctx->cascade.setParams(p);
 
   char ack[128];
   snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_safety\",\"key\":\"%s\",\"value\":%.4f}", key, val);
@@ -258,31 +271,32 @@ static void handleSetSafety(const char* buf, AsyncWebSocketClient* client) {
 }
 
 static void handleSetFoc(const char* buf, AsyncWebSocketClient* client) {
+  if (!s_ctx) return;
   char key[32];
   if (!parseKey(buf, key, sizeof(key))) return;
   float val = parseValue(buf);
 
   if (strcmp(key, "voltage_limit") == 0) {
-    g_cmd.req_tlimit = val;
-    g_cmd.req_apply_limits = true;
+    s_ctx->cmd_state.req_tlimit = val;
+    s_ctx->cmd_state.req_apply_limits = true;
   } else if (strcmp(key, "velocity_limit") == 0) {
-    g_cmd.req_vlimit = val;
-    g_cmd.req_apply_limits = true;
+    s_ctx->cmd_state.req_vlimit = val;
+    s_ctx->cmd_state.req_apply_limits = true;
   } else if (strcmp(key, "pid_p") == 0) {
-    g_cmd.req_pid_p = val;
-    g_cmd.req_apply_pid = true;
+    s_ctx->cmd_state.req_pid_p = val;
+    s_ctx->cmd_state.req_apply_pid = true;
   } else if (strcmp(key, "pid_i") == 0) {
-    g_cmd.req_pid_i = val;
-    g_cmd.req_apply_pid = true;
+    s_ctx->cmd_state.req_pid_i = val;
+    s_ctx->cmd_state.req_apply_pid = true;
   } else if (strcmp(key, "pid_d") == 0) {
-    g_cmd.req_pid_d = val;
-    g_cmd.req_apply_pid = true;
+    s_ctx->cmd_state.req_pid_d = val;
+    s_ctx->cmd_state.req_apply_pid = true;
   } else if (strcmp(key, "motion_mode") == 0) {
-    g_cmd.req_motion_mode = (int)val;
-    g_cmd.req_apply_mode = true;
+    s_ctx->cmd_state.req_motion_mode = (int)val;
+    s_ctx->cmd_state.req_apply_mode = true;
   } else if (strcmp(key, "torque_mode") == 0) {
-    g_cmd.req_torque_mode = (int)val;
-    g_cmd.req_apply_mode = true;
+    s_ctx->cmd_state.req_torque_mode = (int)val;
+    s_ctx->cmd_state.req_apply_mode = true;
   }
 
   char ack[128];
@@ -291,12 +305,13 @@ static void handleSetFoc(const char* buf, AsyncWebSocketClient* client) {
 }
 
 static void handleSetCtrl(const char* buf, AsyncWebSocketClient* client) {
+  if (!s_ctx) return;
   char key[32];
   if (!parseKey(buf, key, sizeof(key))) return;
   float val = parseValue(buf);
 
-  if      (strcmp(key, "motor_enable") == 0)   g_cmd.motor_enable   = (val != 0.f);
-  else if (strcmp(key, "balance_enable") == 0)  g_cmd.balance_enable = (val != 0.f);
+  if      (strcmp(key, "motor_enable") == 0)   s_ctx->cmd_state.motor_enable   = (val != 0.f);
+  else if (strcmp(key, "balance_enable") == 0)  s_ctx->cmd_state.balance_enable = (val != 0.f);
 
   char ack[128];
   snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_ctrl\",\"key\":\"%s\",\"value\":%.0f}", key, val);
@@ -304,8 +319,9 @@ static void handleSetCtrl(const char* buf, AsyncWebSocketClient* client) {
 }
 
 static void handleSetTarget(const char* buf, AsyncWebSocketClient* client) {
+  if (!s_ctx) return;
   float val = parseValue(buf);
-  g_cmd.manual_target = val;
+  s_ctx->cmd_state.manual_target = val;
 
   char ack[64];
   snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_target\",\"value\":%.3f}", val);
@@ -313,8 +329,9 @@ static void handleSetTarget(const char* buf, AsyncWebSocketClient* client) {
 }
 
 static void handleSaveParams(AsyncWebSocketClient* client) {
+  if (!s_ctx) return;
   CascadeController::Params p;
-  g_cascade.getParams(p);
+  s_ctx->cascade.getParams(p);
   bool ok = saveCascadeParams(p);
 
   char ack[64];
@@ -359,7 +376,9 @@ static void onWsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client,
 // ============================================================
 // Public API
 // ============================================================
-void wifi_debug_init() {
+void wifi_debug_init(AppContext& ctx) {
+  s_ctx = &ctx;
+
   WiFi.mode(WIFI_AP);
   WiFi.softAP("BalanceBot");
   Serial.print("AP IP: ");
