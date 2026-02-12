@@ -3,7 +3,6 @@
 #include <SimpleFOC.h>
 
 #include "pins.h"
-#include "balance_core.h"
 #include "shared_state.h"
 #include "wifi_debug.h"
 
@@ -42,10 +41,9 @@ ImuShared      g_imu;
 BalanceShared  g_bal;
 WheelShared    g_wheel;
 CommandShared  g_cmd;
-bc_ctx_t       g_bc;  // Legacy - will be replaced
 
 // ============================================================
-// New Cascade Controller (replaces bc_ctx)
+// Cascade Controller (balance control framework)
 // ============================================================
 CascadeController g_cascade;
 
@@ -343,8 +341,14 @@ void setup() {
     Serial.println("Warning: Some hardware failed to initialize");
   }
 
-  // init balance core
-  bc_init(&g_bc);
+  // Load cascade controller parameters from flash (if exists)
+  CascadeController::Params params;
+  if (loadCascadeParams(params)) {
+    g_cascade.setParams(params);
+    Serial.println("Loaded cascade params from flash");
+  } else {
+    Serial.println("Using default cascade params");
+  }
 
   // WiFi + WebSocket debug
   wifi_debug_init();

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <stdint.h>
-#include "balance_core.h"
 
 // ============================================================
 // Shared state structures (single-writer / single-reader safe)
@@ -60,4 +59,3 @@ extern ImuShared      g_imu;
 extern BalanceShared  g_bal;
 extern WheelShared    g_wheel;
 extern CommandShared  g_cmd;
-extern bc_ctx_t       g_bc;

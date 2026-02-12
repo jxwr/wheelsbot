@@ -17,13 +17,14 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a2e;color:#e0
 .card{background:#16213e;border-radius:8px;padding:12px;border:1px solid #0f3460}
 .card h2{font-size:13px;color:#e94560;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
 .row{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap}
-.row label{min-width:120px;font-size:12px;color:#a0a0c0}
+.row label{min-width:140px;font-size:12px;color:#a0a0c0}
 .row input[type=number]{width:90px;background:#0a0a1a;border:1px solid #333;color:#fff;padding:4px 6px;border-radius:4px;font-size:13px}
 .row input[type=number]:focus{outline:none;border-color:#e94560}
 .btn{padding:4px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600}
 .btn-send{background:#0f3460;color:#e0e0e0}.btn-send:hover{background:#1a4f8a}
 .btn-on{background:#0a3d2a;color:#00ff88}.btn-on:hover{background:#0d5a3e}
 .btn-off{background:#3d0a0a;color:#ff4444}.btn-off:hover{background:#5a0d0d}
+.btn-save{background:#e94560;color:#fff}.btn-save:hover{background:#ff6688}
 .telem-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
 .telem-item{background:#0a0a1a;padding:4px 8px;border-radius:4px;font-size:12px}
 .telem-item .lbl{color:#a0a0c0;display:block;font-size:10px}
@@ -66,36 +67,29 @@ input:checked+.slider:before{transform:translateX(20px);background:#00ff88}
   </div>
 
   <div class="card" style="margin-top:8px">
-    <h2>Inner Loop PD</h2>
-    <div class="row"><label>Kp</label><input type="number" id="bc-Kp" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendBc('Kp')">Set</button></div>
-    <div class="row"><label>Ki</label><input type="number" id="bc-Ki" step="0.1" value="0.0"><button class="btn btn-send" onclick="sendBc('Ki')">Set</button></div>
-    <div class="row"><label>Kd</label><input type="number" id="bc-Kd" step="0.1" value="0.6"><button class="btn btn-send" onclick="sendBc('Kd')">Set</button></div>
-    <div class="row"><label>D LPF alpha</label><input type="number" id="bc-d_lpf_alpha" step="0.05" value="0.7"><button class="btn btn-send" onclick="sendBc('d_lpf_alpha')">Set</button></div>
-    <div class="row"><label>Comp alpha</label><input type="number" id="bc-comp_alpha" step="0.01" value="0.98"><button class="btn btn-send" onclick="sendBc('comp_alpha')">Set</button></div>
-    <div class="row"><label>Max Out (V)</label><input type="number" id="bc-max_out" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendBc('max_out')">Set</button></div>
-    <div class="row"><label>Pitch Target</label><input type="number" id="bc-pitch_target" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendBc('pitch_target')">Set</button></div>
+    <h2>Angle Loop (Inner)</h2>
+    <div class="row"><label>Kp</label><input type="number" id="cascade-angle_kp" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendAngle('angle_kp')">Set</button></div>
+    <div class="row"><label>Ki</label><input type="number" id="cascade-angle_ki" step="0.1" value="0.0"><button class="btn btn-send" onclick="sendAngle('angle_ki')">Set</button></div>
+    <div class="row"><label>Kd</label><input type="number" id="cascade-angle_kd" step="0.1" value="0.6"><button class="btn btn-send" onclick="sendAngle('angle_kd')">Set</button></div>
+    <div class="row"><label>D LPF alpha</label><input type="number" id="cascade-angle_d_alpha" step="0.05" value="0.7"><button class="btn btn-send" onclick="sendAngle('angle_d_alpha')">Set</button></div>
+    <div class="row"><label>Max Out (V)</label><input type="number" id="cascade-angle_max_out" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendAngle('angle_max_out')">Set</button></div>
+    <div class="row"><label>Integrator Limit</label><input type="number" id="cascade-angle_integrator_limit" step="0.5" value="2.0"><button class="btn btn-send" onclick="sendAngle('angle_integrator_limit')">Set</button></div>
   </div>
 
   <div class="card" style="margin-top:8px">
-    <h2>Outer Loop</h2>
-    <div class="row"><label>Kv</label><input type="number" id="bc-Kv" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendBc('Kv')">Set</button></div>
-    <div class="row"><label>Kx</label><input type="number" id="bc-Kx" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendBc('Kx')">Set</button></div>
-    <div class="row"><label>Tilt Cmd Max</label><input type="number" id="bc-tilt_cmd_max" step="0.05" value="0.3"><button class="btn btn-send" onclick="sendBc('tilt_cmd_max')">Set</button></div>
-    <div class="row"><label>Bias Learn K</label><input type="number" id="bc-bias_learn_k" step="0.001" value="0.0"><button class="btn btn-send" onclick="sendBc('bias_learn_k')">Set</button></div>
-    <div class="row"><label>V Gate</label><input type="number" id="bc-v_gate" step="0.05" value="0.25"><button class="btn btn-send" onclick="sendBc('v_gate')">Set</button></div>
-    <div class="row"><label>W Gate</label><input type="number" id="bc-w_gate" step="0.05" value="0.15"><button class="btn btn-send" onclick="sendBc('w_gate')">Set</button></div>
+    <h2>Velocity Loop (Outer)</h2>
+    <div class="row"><label>Kp</label><input type="number" id="cascade-velocity_kp" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendVelocity('velocity_kp')">Set</button></div>
+    <div class="row"><label>Max Tilt Cmd</label><input type="number" id="cascade-velocity_max_tilt" step="0.05" value="0.3"><button class="btn btn-send" onclick="sendVelocity('velocity_max_tilt')">Set</button></div>
   </div>
 </div>
 
-<!-- Column 2: Safety + FOC + Geometry -->
+<!-- Column 2: Safety + FOC -->
 <div>
   <div class="card">
     <h2>Safety Limits</h2>
-    <div class="row"><label>Max Tilt (rad)</label><input type="number" id="bc-max_tilt" step="0.05" value="0.611"><button class="btn btn-send" onclick="sendBc('max_tilt')">Set</button></div>
-    <div class="row"><label>Sensor Timeout</label><input type="number" id="bc-sensor_timeout_s" step="0.05" value="0.2"><button class="btn btn-send" onclick="sendBc('sensor_timeout_s')">Set</button></div>
-    <div class="row"><label>Ramp Time (s)</label><input type="number" id="bc-ramp_time_s" step="0.1" value="0.5"><button class="btn btn-send" onclick="sendBc('ramp_time_s')">Set</button></div>
-    <div class="row"><label>Integrator Limit</label><input type="number" id="bc-integrator_limit" step="0.5" value="2.0"><button class="btn btn-send" onclick="sendBc('integrator_limit')">Set</button></div>
-    <div class="row"><label>Deadband</label><input type="number" id="bc-deadband" step="0.001" value="0.0"><button class="btn btn-send" onclick="sendBc('deadband')">Set</button></div>
+    <div class="row"><label>Max Tilt (rad)</label><input type="number" id="cascade-max_tilt" step="0.05" value="0.611"><button class="btn btn-send" onclick="sendSafety('max_tilt')">Set</button></div>
+    <div class="row"><label>Ramp Time (s)</label><input type="number" id="cascade-ramp_time" step="0.1" value="0.5"><button class="btn btn-send" onclick="sendSafety('ramp_time')">Set</button></div>
+    <div class="row"><label>Pitch Offset</label><input type="number" id="cascade-pitch_offset" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendSafety('pitch_offset')">Set</button></div>
   </div>
 
   <div class="card" style="margin-top:8px">
@@ -119,12 +113,6 @@ input:checked+.slider:before{transform:translateX(20px);background:#00ff88}
     <div class="row"><label>PID I</label><input type="number" id="foc-pid_i" step="1" value="20"><button class="btn btn-send" onclick="sendFoc('pid_i')">Set</button></div>
     <div class="row"><label>PID D</label><input type="number" id="foc-pid_d" step="0.0001" value="0.001"><button class="btn btn-send" onclick="sendFoc('pid_d')">Set</button></div>
   </div>
-
-  <div class="card" style="margin-top:8px">
-    <h2>Geometry</h2>
-    <div class="row"><label>v2speed Gain</label><input type="number" id="bc-v2speed_gain" step="1" value="28.57"><button class="btn btn-send" onclick="sendBc('v2speed_gain')">Set</button></div>
-    <div class="row"><label>yaw2diff Gain</label><input type="number" id="bc-yaw2diff_gain" step="0.1" value="2.57"><button class="btn btn-send" onclick="sendBc('yaw2diff_gain')">Set</button></div>
-  </div>
 </div>
 
 <!-- Column 3: Telemetry + 3D -->
@@ -141,8 +129,8 @@ input:checked+.slider:before{transform:translateX(20px);background:#00ff88}
       <div class="telem-item"><span class="lbl">Pitch (deg)</span><span class="val" id="t-pitch-deg">-</span></div>
       <div class="telem-item"><span class="lbl">Roll (deg)</span><span class="val" id="t-roll-deg">-</span></div>
       <div class="telem-item"><span class="lbl">Yaw (deg)</span><span class="val" id="t-yaw-deg">-</span></div>
-      <div class="telem-item"><span class="lbl">Error</span><span class="val" id="t-err">-</span></div>
-      <div class="telem-item"><span class="lbl">Error I</span><span class="val" id="t-err-i">-</span></div>
+      <div class="telem-item"><span class="lbl">Pitch Error</span><span class="val" id="t-err">-</span></div>
+      <div class="telem-item"><span class="lbl">Pitch I</span><span class="val" id="t-err-i">-</span></div>
       <div class="telem-item"><span class="lbl">U Balance</span><span class="val" id="t-u-bal">-</span></div>
       <div class="telem-item"><span class="lbl">U Left</span><span class="val" id="t-u-l">-</span></div>
       <div class="telem-item"><span class="lbl">U Right</span><span class="val" id="t-u-r">-</span></div>
@@ -160,6 +148,7 @@ input:checked+.slider:before{transform:translateX(20px);background:#00ff88}
   <div class="card" style="margin-top:8px">
     <h2>Actions</h2>
     <button class="btn btn-send" onclick="refreshParams()" style="margin:4px">Refresh Params</button>
+    <button class="btn btn-save" onclick="saveParams()" style="margin:4px">Save to Flash</button>
   </div>
 </div>
 
@@ -320,9 +309,9 @@ function setText(id, v) { document.getElementById(id).textContent = v; }
 // Params handler (fills UI fields on connect / refresh)
 // ============================================================
 function handleParams(msg) {
-  if (msg.bc) {
-    for (const [k, v] of Object.entries(msg.bc)) {
-      const el = document.getElementById('bc-' + k);
+  if (msg.cascade) {
+    for (const [k, v] of Object.entries(msg.cascade)) {
+      const el = document.getElementById('cascade-' + k);
       if (el) el.value = v;
     }
   }
@@ -348,10 +337,22 @@ function handleParams(msg) {
 // ============================================================
 // Command senders
 // ============================================================
-function sendBc(key) {
-  const el = document.getElementById('bc-' + key);
+function sendAngle(key) {
+  const el = document.getElementById('cascade-' + key);
   if (ws && ws.readyState === 1 && el)
-    ws.send(JSON.stringify({ type: 'set_bc', key: key, value: parseFloat(el.value) }));
+    ws.send(JSON.stringify({ type: 'set_angle', key: key, value: parseFloat(el.value) }));
+}
+
+function sendVelocity(key) {
+  const el = document.getElementById('cascade-' + key);
+  if (ws && ws.readyState === 1 && el)
+    ws.send(JSON.stringify({ type: 'set_velocity', key: key, value: parseFloat(el.value) }));
+}
+
+function sendSafety(key) {
+  const el = document.getElementById('cascade-' + key);
+  if (ws && ws.readyState === 1 && el)
+    ws.send(JSON.stringify({ type: 'set_safety', key: key, value: parseFloat(el.value) }));
 }
 
 function sendFoc(key) {
@@ -373,6 +374,13 @@ function sendTarget() {
 
 function refreshParams() {
   if (ws && ws.readyState === 1) ws.send('{"type":"get_params"}');
+}
+
+function saveParams() {
+  if (ws && ws.readyState === 1) {
+    ws.send('{"type":"save_params"}');
+    alert('Parameters saved to flash!');
+  }
 }
 
 // Auto-connect on load
