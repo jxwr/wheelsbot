@@ -9,7 +9,7 @@ VelocityController::VelocityController() : pid_("VelocityPID") {
   // Start with conservative values - needs tuning
   pid_.setGains(0.0f, 0.0f, 0.0f);  // Disabled by default for safe tuning
   pid_.setOutputLimits(-max_tilt_, max_tilt_);
-  pid_.setIntegralLimit(0.1f);
+  pid_.setIntegralLimit(1.0f);
   pid_.setDFilterAlpha(0.5f);
 }
 

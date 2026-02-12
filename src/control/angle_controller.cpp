@@ -6,7 +6,7 @@ namespace control {
 AngleController::AngleController() : pid_("AnglePID") {
   // Default gains for inner loop (faster, tighter)
   // These will need tuning after separation
-  pid_.setGains(6.0f, 0.0f, 0.6f);
+  pid_.setGains(12.0f, 0.0f, 0.6f);
   pid_.setOutputLimits(-6.0f, 6.0f);  // Voltage limit
   pid_.setIntegralLimit(2.0f);
   pid_.setDFilterAlpha(0.7f);
