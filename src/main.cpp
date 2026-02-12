@@ -3,55 +3,17 @@
 #include <SimpleFOC.h>
 
 #include "pins.h"
-#include "shared_state.h"
+#include "app_context.h"
 #include "wifi_debug.h"
-
-// Hardware Abstraction Layer
-#include "hardware/hardware_manager.h"
-#include "hardware/imu_interface.h"
-#include "hardware/encoder_interface.h"
-
-// Control Framework
-#include "control/cascade_controller.h"
-#include "control/angle_controller.h"
-#include "control/velocity_controller.h"
 
 using namespace wheelsbot::hardware;
 using namespace wheelsbot::control;
 
 // ============================================================
-// Second I2C bus
-// ============================================================
-TwoWire Wire2 = TwoWire(1);
-
-// ============================================================
-// SimpleFOC objects
-// ============================================================
-MagneticSensorI2C lsensor = MagneticSensorI2C(AS5600_I2C);
-MagneticSensorI2C rsensor = MagneticSensorI2C(AS5600_I2C);
-BLDCMotor lmotor(POLE_PAIRS);
-BLDCMotor rmotor(POLE_PAIRS);
-BLDCDriver3PWM ldriver(PIN_PWM_U, PIN_PWM_V, PIN_PWM_W, PIN_EN);
-BLDCDriver3PWM rdriver(PIN_PWM_U2, PIN_PWM_V2, PIN_PWM_W2, PIN_EN2);
-
-// ============================================================
-// Global shared state instances
-// ============================================================
-ImuShared      g_imu;
-BalanceShared  g_bal;
-WheelShared    g_wheel;
-CommandShared  g_cmd;
-
-// ============================================================
-// Cascade Controller (balance control framework)
-// ============================================================
-CascadeController g_cascade;
-
-// ============================================================
-// Tasks
+// Tasks — all receive AppContext* via pvParameter
 // ============================================================
 
-void ledTask(void* arg) {
+static void ledTask(void* arg) {
   pinMode(LED_PIN, OUTPUT);
   while (true) {
     digitalWrite(LED_PIN, HIGH);
@@ -61,12 +23,13 @@ void ledTask(void* arg) {
   }
 }
 
-// imuTask: 200Hz read via HAL
-void imuTask(void* arg) {
+// imuTask: 200Hz read via HAL (Core 0 — avoids Wire contention with focTask)
+static void imuTask(void* arg) {
+  auto* ctx = static_cast<AppContext*>(arg);
   const TickType_t period = pdMS_TO_TICKS(5);
   TickType_t last = xTaskGetTickCount();
 
-  ImuSensor* imu = HardwareManager::instance().imu();
+  ImuSensor* imu = ctx->hw.imu();
   if (!imu) {
     Serial.println("IMU Task: no IMU available");
     vTaskDelete(nullptr);
@@ -75,22 +38,24 @@ void imuTask(void* arg) {
 
   while (true) {
     ImuData data;
+    xSemaphoreTake(ctx->wire_mutex, portMAX_DELAY);
     bool ok = imu->read(data);
+    xSemaphoreGive(ctx->wire_mutex);
 
     if (ok && data.valid) {
-      g_imu.ax = data.ax;
-      g_imu.ay = data.ay;
-      g_imu.az = data.az;
-      g_imu.gx = data.gx;
-      g_imu.gy = data.gy;
-      g_imu.gz = data.gz;
-      g_imu.valid = true;
+      ctx->imu_state.ax = data.ax;
+      ctx->imu_state.ay = data.ay;
+      ctx->imu_state.az = data.az;
+      ctx->imu_state.gx = data.gx;
+      ctx->imu_state.gy = data.gy;
+      ctx->imu_state.gz = data.gz;
+      ctx->imu_state.valid = true;
 
-      g_imu.pitch_deg = data.pitch;
-      g_imu.roll_deg  = data.roll;
-      g_imu.yaw_deg   = data.yaw;
+      ctx->imu_state.pitch_deg = data.pitch;
+      ctx->imu_state.roll_deg  = data.roll;
+      ctx->imu_state.yaw_deg   = data.yaw;
     } else {
-      g_imu.valid = false;
+      ctx->imu_state.valid = false;
     }
 
     vTaskDelayUntil(&last, period);
@@ -98,17 +63,17 @@ void imuTask(void* arg) {
 }
 
 // balanceTask: 200Hz cascade control — Velocity → Angle
-void balanceTask(void* arg) {
+static void balanceTask(void* arg) {
+  auto* ctx = static_cast<AppContext*>(arg);
   const TickType_t period = pdMS_TO_TICKS(5);
   TickType_t last = xTaskGetTickCount();
 
-  g_cascade.reset();
+  ctx->cascade.reset();
   uint32_t lastUs = micros();
 
   // Initial tuning: inner loop only for safety
-  // User can enable outer loop via WebSocket later
-  g_cascade.angleLoop().setGains(6.0f, 0.0f, 0.6f);
-  g_cascade.velocityLoop().setGains(0.0f, 0.0f, 0.0f);  // Disabled initially
+  ctx->cascade.angleLoop().setGains(10.0f, 0.0f, 0.4f);
+  ctx->cascade.velocityLoop().setGains(0.01f, 0.0f, 0.0f);  // Minimal P-only for stability
 
   while (true) {
     uint32_t nowUs = micros();
@@ -118,72 +83,87 @@ void balanceTask(void* arg) {
 
     // Prepare cascade input
     CascadeInput cin;
-    cin.velocity_reference = 0.0f;  // Target: hold position (zero velocity)
-    cin.velocity_measurement = g_wheel.valid ? (g_wheel.wL + g_wheel.wR) * 0.5f : 0.0f;
-    cin.pitch_measurement = g_imu.valid ? (g_imu.pitch_deg * 3.14159f / 180.0f) : 0.0f;
-    cin.pitch_rate = g_imu.valid ? g_imu.gy : 0.0f;  // rad/s
+    cin.velocity_reference = 0.0f;
+    cin.velocity_measurement = ctx->wheel_state.valid
+        ? (ctx->wheel_state.wL + ctx->wheel_state.wR) * 0.5f : 0.0f;
+    cin.pitch_measurement = ctx->imu_state.valid
+        ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;
+    cin.pitch_rate = ctx->imu_state.valid ? ctx->imu_state.gy : 0.0f;
     cin.dt = dt;
-    cin.enabled = g_cmd.balance_enable;
-    cin.sensors_valid = g_imu.valid && g_wheel.valid;
+    cin.timestamp_ms = millis();
+    cin.enabled = ctx->cmd_state.balance_enable;
+    cin.sensors_valid = ctx->imu_state.valid && ctx->wheel_state.valid;
 
     CascadeOutput cout;
-    g_cascade.step(cin, cout);
+    ctx->cascade.step(cin, cout);
 
-    if (cout.valid && g_cascade.isRunning()) {
-      g_bal.left_target  = cout.left_motor;
-      g_bal.right_target = cout.right_motor;
-      g_bal.ok = true;
+    if (cout.valid && ctx->cascade.isRunning()) {
+      ctx->bal_state.left_target  = cout.left_motor;
+      ctx->bal_state.right_target = cout.right_motor;
+      ctx->bal_state.ok = true;
     } else {
-      g_bal.left_target  = 0.0f;
-      g_bal.right_target = 0.0f;
-      g_bal.ok = false;
+      ctx->bal_state.left_target  = 0.0f;
+      ctx->bal_state.right_target = 0.0f;
+      ctx->bal_state.ok = false;
     }
 
     vTaskDelayUntil(&last, period);
   }
 }
 
-// focTask: 1kHz FOC loop
-void focTask(void* arg) {
-  // ==== left motor ====
-  lsensor.init();
-  lmotor.linkSensor(&lsensor);
+// focTask: 1kHz FOC loop (Core 1 — sole owner of sensor I2C reads)
+static void focTask(void* arg) {
+  auto* ctx = static_cast<AppContext*>(arg);
 
-  ldriver.voltage_power_supply = SUPPLY_VOLTAGE;
-  ldriver.init();
-  lmotor.linkDriver(&ldriver);
+  // ==== left motor (lsensor on Wire — shared with IMU, needs mutex) ====
+  xSemaphoreTake(ctx->wire_mutex, portMAX_DELAY);
+  ctx->lsensor.init();
+  ctx->lmotor.linkSensor(&ctx->lsensor);
 
-  lmotor.controller = MotionControlType::torque;
-  lmotor.torque_controller = TorqueControlType::voltage;
-  lmotor.voltage_limit  = VOLTAGE_LIMIT_INIT;
-  lmotor.velocity_limit = 100.0f;
+  ctx->ldriver.voltage_power_supply = SUPPLY_VOLTAGE;
+  ctx->ldriver.init();
+  ctx->lmotor.linkDriver(&ctx->ldriver);
 
-  lmotor.init();
-  if (!lmotor.initFOC()) {
+  ctx->lmotor.controller = MotionControlType::torque;
+  ctx->lmotor.torque_controller = TorqueControlType::voltage;
+  ctx->lmotor.voltage_limit  = VOLTAGE_LIMIT_INIT;
+  ctx->lmotor.velocity_limit = 100.0f;
+
+  ctx->lmotor.init();
+  bool lfoc_ok = ctx->lmotor.initFOC();
+  xSemaphoreGive(ctx->wire_mutex);
+
+  if (!lfoc_ok) {
     Serial.println("Left FOC init failed!");
     vTaskDelete(nullptr);
     return;
   }
 
-  // ==== right motor ====
-  rsensor.init(&Wire2);
-  rmotor.linkSensor(&rsensor);
+  // ==== right motor (rsensor on Wire2) ====
+  // Wire2 is passed via the static local in setup(), accessed here via extern
+  extern TwoWire Wire2;
+  ctx->rsensor.init(&Wire2);
+  ctx->rmotor.linkSensor(&ctx->rsensor);
 
-  rdriver.voltage_power_supply = SUPPLY_VOLTAGE;
-  rdriver.init();
-  rmotor.linkDriver(&rdriver);
+  ctx->rdriver.voltage_power_supply = SUPPLY_VOLTAGE;
+  ctx->rdriver.init();
+  ctx->rmotor.linkDriver(&ctx->rdriver);
 
-  rmotor.controller = MotionControlType::torque;
-  rmotor.torque_controller = TorqueControlType::voltage;
-  rmotor.voltage_limit  = VOLTAGE_LIMIT_INIT;
-  rmotor.velocity_limit = 100.0f;
+  ctx->rmotor.controller = MotionControlType::torque;
+  ctx->rmotor.torque_controller = TorqueControlType::voltage;
+  ctx->rmotor.voltage_limit  = VOLTAGE_LIMIT_INIT;
+  ctx->rmotor.velocity_limit = 100.0f;
 
-  rmotor.init();
-  if (!rmotor.initFOC()) {
+  ctx->rmotor.init();
+  if (!ctx->rmotor.initFOC()) {
     Serial.println("Right FOC init failed!");
     vTaskDelete(nullptr);
     return;
   }
+
+  // Mark encoder adapters as initialized (SimpleFOC sensors are now ready)
+  ctx->left_enc.init();
+  ctx->right_enc.init();
 
   Serial.println("FOC ready");
 
@@ -195,105 +175,118 @@ void focTask(void* arg) {
 
   while (true) {
     // enable/disable on edge only
-    bool me = g_cmd.motor_enable;
+    bool me = ctx->cmd_state.motor_enable;
     if (me != last_motor_enable) {
       last_motor_enable = me;
       if (me) {
-        ldriver.enable(); lmotor.enable();
-        rdriver.enable(); rmotor.enable();
+        ctx->ldriver.enable(); ctx->lmotor.enable();
+        ctx->rdriver.enable(); ctx->rmotor.enable();
       } else {
-        lmotor.disable(); ldriver.disable();
-        rmotor.disable(); rdriver.disable();
+        ctx->lmotor.disable(); ctx->ldriver.disable();
+        ctx->rmotor.disable(); ctx->rdriver.disable();
       }
     }
 
     // apply mode changes
-    if (g_cmd.req_apply_mode) {
-      if (g_cmd.req_motion_mode == 0) {
-        lmotor.controller = MotionControlType::torque;
-        rmotor.controller = MotionControlType::torque;
-      } else if (g_cmd.req_motion_mode == 1) {
-        lmotor.controller = MotionControlType::velocity;
-        rmotor.controller = MotionControlType::velocity;
+    if (ctx->cmd_state.req_apply_mode) {
+      if (ctx->cmd_state.req_motion_mode == 0) {
+        ctx->lmotor.controller = MotionControlType::torque;
+        ctx->rmotor.controller = MotionControlType::torque;
+      } else if (ctx->cmd_state.req_motion_mode == 1) {
+        ctx->lmotor.controller = MotionControlType::velocity;
+        ctx->rmotor.controller = MotionControlType::velocity;
       } else {
-        lmotor.controller = MotionControlType::angle;
-        rmotor.controller = MotionControlType::angle;
+        ctx->lmotor.controller = MotionControlType::angle;
+        ctx->rmotor.controller = MotionControlType::angle;
       }
 
-      if (g_cmd.req_torque_mode == 0) {
-        lmotor.torque_controller = TorqueControlType::voltage;
-        rmotor.torque_controller = TorqueControlType::voltage;
-      } else if (g_cmd.req_torque_mode == 2) {
-        lmotor.torque_controller = TorqueControlType::foc_current;
-        rmotor.torque_controller = TorqueControlType::foc_current;
+      if (ctx->cmd_state.req_torque_mode == 0) {
+        ctx->lmotor.torque_controller = TorqueControlType::voltage;
+        ctx->rmotor.torque_controller = TorqueControlType::voltage;
+      } else if (ctx->cmd_state.req_torque_mode == 2) {
+        ctx->lmotor.torque_controller = TorqueControlType::foc_current;
+        ctx->rmotor.torque_controller = TorqueControlType::foc_current;
       }
 
-      g_cmd.req_apply_mode = false;
+      ctx->cmd_state.req_apply_mode = false;
     }
 
     // apply limits
-    if (g_cmd.req_apply_limits) {
-      lmotor.voltage_limit = g_cmd.req_tlimit;
-      rmotor.voltage_limit = g_cmd.req_tlimit;
+    if (ctx->cmd_state.req_apply_limits) {
+      ctx->lmotor.voltage_limit = ctx->cmd_state.req_tlimit;
+      ctx->rmotor.voltage_limit = ctx->cmd_state.req_tlimit;
 
-      if (g_cmd.req_vlimit > 0) {
-        lmotor.velocity_limit = g_cmd.req_vlimit;
-        rmotor.velocity_limit = g_cmd.req_vlimit;
+      if (ctx->cmd_state.req_vlimit > 0) {
+        ctx->lmotor.velocity_limit = ctx->cmd_state.req_vlimit;
+        ctx->rmotor.velocity_limit = ctx->cmd_state.req_vlimit;
       }
 
-      g_cmd.req_apply_limits = false;
+      ctx->cmd_state.req_apply_limits = false;
     }
 
     // apply PID
-    if (g_cmd.req_apply_pid) {
-      lmotor.PID_velocity.P = g_cmd.req_pid_p;
-      lmotor.PID_velocity.I = g_cmd.req_pid_i;
-      lmotor.PID_velocity.D = g_cmd.req_pid_d;
+    if (ctx->cmd_state.req_apply_pid) {
+      ctx->lmotor.PID_velocity.P = ctx->cmd_state.req_pid_p;
+      ctx->lmotor.PID_velocity.I = ctx->cmd_state.req_pid_i;
+      ctx->lmotor.PID_velocity.D = ctx->cmd_state.req_pid_d;
 
-      rmotor.PID_velocity.P = g_cmd.req_pid_p;
-      rmotor.PID_velocity.I = g_cmd.req_pid_i;
-      rmotor.PID_velocity.D = g_cmd.req_pid_d;
+      ctx->rmotor.PID_velocity.P = ctx->cmd_state.req_pid_p;
+      ctx->rmotor.PID_velocity.I = ctx->cmd_state.req_pid_i;
+      ctx->rmotor.PID_velocity.D = ctx->cmd_state.req_pid_d;
 
-      g_cmd.req_apply_pid = false;
+      ctx->cmd_state.req_apply_pid = false;
     }
 
-    // FOC loop
-    lmotor.loopFOC();
-    rmotor.loopFOC();
+    // FOC loop (left motor uses Wire — protect with mutex)
+    xSemaphoreTake(ctx->wire_mutex, portMAX_DELAY);
+    ctx->lmotor.loopFOC();
+    xSemaphoreGive(ctx->wire_mutex);
+    ctx->rmotor.loopFOC();  // Wire2, no mutex needed
 
-    g_wheel.wL =  lsensor.getVelocity();
-    g_wheel.wR = -rsensor.getVelocity();  // 与电机取反一致
-    g_wheel.xL =  lsensor.getAngle();
-    g_wheel.xR = -rsensor.getAngle();
-    g_wheel.valid = true;
+    // Update wheel state via SimpleFOC sensor adapters.
+    // lsensor shares Wire with MPU6050 (imuTask) — I2C mutex contention can
+    // cause occasional velocity spikes.  EMA low-pass filter attenuates
+    // single-sample glitches while tracking real velocity (~30Hz cutoff at 1kHz).
+    {
+      constexpr float VEL_ALPHA = 0.2f;
+      float wL_raw = ctx->left_enc.getVelocity();
+      float wR_raw = ctx->right_enc.getVelocity();
+
+      ctx->wheel_state.wL += VEL_ALPHA * (wL_raw - ctx->wheel_state.wL);
+      ctx->wheel_state.wR += VEL_ALPHA * (wR_raw - ctx->wheel_state.wR);
+
+      ctx->wheel_state.xL = ctx->left_enc.getAngle();
+      ctx->wheel_state.xR = ctx->right_enc.getAngle();
+      ctx->wheel_state.valid = true;
+    }
 
     // choose target
     float ltarget = 0.0f;
     float rtarget = 0.0f;
 
-    if (g_cmd.balance_enable && g_bal.ok) {
-      lmotor.controller = MotionControlType::torque;
-      rmotor.controller = MotionControlType::torque;
-      lmotor.torque_controller = TorqueControlType::voltage;
-      rmotor.torque_controller = TorqueControlType::voltage;
+    if (ctx->cmd_state.balance_enable && ctx->bal_state.ok) {
+      ctx->lmotor.controller = MotionControlType::torque;
+      ctx->rmotor.controller = MotionControlType::torque;
+      ctx->lmotor.torque_controller = TorqueControlType::voltage;
+      ctx->rmotor.torque_controller = TorqueControlType::voltage;
 
-      ltarget = g_bal.left_target;
-      rtarget = g_bal.right_target;
+      ltarget = ctx->bal_state.left_target;
+      rtarget = ctx->bal_state.right_target;
     } else {
-      ltarget = g_cmd.manual_target;
-      rtarget = g_cmd.manual_target;
+      ltarget = ctx->cmd_state.manual_target;
+      rtarget = ctx->cmd_state.manual_target;
     }
 
-    lmotor.move(ltarget);
-    rmotor.move(rtarget);
+    ctx->lmotor.move(ltarget);
+    ctx->rmotor.move(rtarget);
 
     // 1Hz debug print
     uint32_t ms = millis();
     if (ms - lastPrintMs >= 1000) {
       lastPrintMs = ms;
       Serial.printf("MOT,ctrl=%d,ltgt=%.3f,lvel=%.3f,rtgt=%.3f,rvel=%.3f\n",
-        (int)lmotor.controller, ltarget, lsensor.getVelocity(),
-        rtarget, rsensor.getVelocity());
+        (int)ctx->lmotor.controller, ltarget, ctx->lsensor.getVelocity(),
+        rtarget, ctx->rsensor.getVelocity());
     }
 
     vTaskDelayUntil(&last, period);
@@ -319,48 +312,56 @@ static void scanBus(TwoWire& w, const char* name) {
 // ============================================================
 // setup / loop
 // ============================================================
+
+// Wire2 declared at file scope so focTask can extern it
+TwoWire Wire2(1);
+
 void setup() {
   Serial.begin(115200);
   delay(500);
+  Serial.println("\n\n=== Boot ===");
+  Serial.flush();
+
   SimpleFOCDebug::enable(&Serial);
 
   // I2C buses
+  Serial.println("I2C init...");
   Wire.begin((int)PIN_I2C_SDA, (int)PIN_I2C_SCL);
   Wire.setClock(400000);
 
   Wire2.begin((int)PIN_I2C_SDA2, (int)PIN_I2C_SCL2);
   Wire2.setClock(400000);
+  Serial.println("I2C ready");
 
   scanBus(Wire, "Wire(3,9)");
   scanBus(Wire2, "Wire2(2,1)");
 
-  // Initialize hardware via HAL
-  // Left encoder on Wire (shared with IMU), Right encoder on Wire2
-  bool hw_ok = HardwareManager::instance().init(Wire, Wire, Wire2);
-  if (!hw_ok) {
-    Serial.println("Warning: Some hardware failed to initialize");
-  }
+  // Construct AppContext — all hardware, control, and shared state
+  static AppContext ctx(Wire, Wire2);
+
+  // Initialize IMU via HAL
+  ctx.hw.initImu();
+
+  // WiFi + WebSocket debug (initializes LittleFS first)
+  wifi_debug_init(ctx);
 
   // Load cascade controller parameters from flash (if exists)
   CascadeController::Params params;
   if (loadCascadeParams(params)) {
-    g_cascade.setParams(params);
+    ctx.cascade.setParams(params);
     Serial.println("Loaded cascade params from flash");
   } else {
-    Serial.println("Using default cascade params");
+    Serial.println("Using default cascade params (flash unavailable)");
   }
 
-  // WiFi + WebSocket debug
-  wifi_debug_init();
-
-  // Start tasks — core assignment per plan:
+  // Start tasks — core assignment:
   // Core 0: imuTask(prio 5), balanceTask(prio 4), wifiDebugTask(prio 1), ledTask(prio 0)
-  // Core 1: focTask(prio 5)
+  // Core 1: focTask(prio 5) — sole owner of sensor I2C reads
   xTaskCreatePinnedToCore(ledTask,       "LED", 2048, nullptr, 0, nullptr, 0);
-  xTaskCreatePinnedToCore(imuTask,       "IMU", 8192, nullptr, 5, nullptr, 0);
-  xTaskCreatePinnedToCore(balanceTask,   "BAL", 8192, nullptr, 4, nullptr, 0);
-  xTaskCreatePinnedToCore(wifiDebugTask, "WST", 8192, nullptr, 1, nullptr, 0);
-  xTaskCreatePinnedToCore(focTask,       "FOC", 8192, nullptr, 5, nullptr, 1);
+  xTaskCreatePinnedToCore(imuTask,       "IMU", 8192, &ctx,    5, nullptr, 0);
+  xTaskCreatePinnedToCore(balanceTask,   "BAL", 8192, &ctx,    4, nullptr, 0);
+  xTaskCreatePinnedToCore(wifiDebugTask, "WST", 8192, &ctx,    1, nullptr, 0);
+  xTaskCreatePinnedToCore(focTask,       "FOC", 8192, &ctx,    5, nullptr, 1);
 
   Serial.println("Tasks started");
 }
