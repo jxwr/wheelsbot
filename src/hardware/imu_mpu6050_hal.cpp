@@ -33,21 +33,43 @@ bool MPU6050_HAL::init() {
   pitch_ = roll_ = yaw_ = 0.0f;
   last_us_ = micros();
 
+  Serial.println("IMU: waking up...");
   // Wake up MPU6050
-  if (!writeRegister(0x6B, 0x00)) return false;
+  if (!writeRegister(0x6B, 0x00)) {
+    Serial.println("IMU: wake up failed");
+    return false;
+  }
   delay(10);
 
+  Serial.println("IMU: configuring gyro...");
   // Set gyro full scale range to ±250 dps (0x00)
-  if (!writeRegister(0x1B, 0x00)) return false;
+  if (!writeRegister(0x1B, 0x00)) {
+    Serial.println("IMU: gyro config failed");
+    return false;
+  }
 
+  Serial.println("IMU: configuring accel...");
   // Set accel full scale range to ±2g (0x00)
-  if (!writeRegister(0x1C, 0x00)) return false;
+  if (!writeRegister(0x1C, 0x00)) {
+    Serial.println("IMU: accel config failed");
+    return false;
+  }
 
   // Verify WHO_AM_I
   uint8_t whoami = 0;
-  if (!readRegisters(0x75, &whoami, 1)) return false;
-  if (whoami != 0x68) return false;
+  Serial.println("IMU: reading WHO_AM_I...");
+  if (!readRegisters(0x75, &whoami, 1)) {
+    Serial.println("IMU: WHO_AM_I read failed");
+    return false;
+  }
+  // 0x68 = MPU6050, 0x70 = MPU6500, 0x71 = MPU9250 — all register-compatible
+  Serial.printf("IMU: WHO_AM_I = 0x%02X\n", whoami);
+  if (whoami != 0x68 && whoami != 0x70 && whoami != 0x71) {
+    Serial.printf("IMU: unexpected WHO_AM_I 0x%02X (want 0x68/0x70/0x71)\n", whoami);
+    return false;
+  }
 
+  Serial.println("IMU: init success");
   initialized_ = true;
   return true;
 }
