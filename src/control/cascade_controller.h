@@ -33,6 +33,7 @@ struct CascadeInput {
 
   // Metadata
   float dt;
+  uint32_t timestamp_ms;      // millis() for frequency tracking
   bool enabled;               // Master enable
   bool sensors_valid;         // IMU + encoders healthy
 };

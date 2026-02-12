@@ -181,7 +181,7 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
 
   // ==== FREQUENCY TRACKING ====
   inner_step_count_++;
-  uint32_t now_ms = static_cast<uint32_t>(in.dt * 1000);  // Approximate, should use millis()
+  uint32_t now_ms = in.timestamp_ms;
   if (last_time_ms_ == 0) last_time_ms_ = now_ms;
   uint32_t elapsed_ms = now_ms - last_time_ms_;
   if (elapsed_ms >= 1000) {  // Update every second
