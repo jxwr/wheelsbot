@@ -130,7 +130,8 @@ static void sendTelemetry() {
     "\"roll_deg\":%.2f,\"yaw_deg\":%.2f,"
     "\"vel\":%.2f,\"vel_target\":%.2f,\"vel_error\":%.4f,\"vel_i\":%.4f,\"pitch_cmd\":%.4f,"
     "\"pitch_error\":%.4f,\"pitch_i\":%.4f,\"motor\":%.3f,"
-    "\"outer_hz\":%.1f,\"inner_hz\":%.1f,\"saturated\":%u,"
+    "\"pos\":%.3f,\"heading\":%.3f,"
+    "\"pos_hz\":%.1f,\"vel_hz\":%.1f,\"ang_hz\":%.1f,\"saturated\":%u,"
     "\"state\":%d,\"fault\":%u,\"eg\":%.2f,"
     "\"runtime\":%lu,\"fault_cnt\":%u,\"max_pitch\":%.3f}",
     (unsigned long)millis(),
@@ -140,7 +141,8 @@ static void sendTelemetry() {
     dbg.velocity_error + (s_ctx->wheel_state.valid ? (s_ctx->wheel_state.wL + s_ctx->wheel_state.wR) * 0.5f : 0.0f) - dbg.velocity_error,
     dbg.velocity_error, dbg.velocity_integrator, dbg.pitch_cmd,
     dbg.pitch_error, dbg.pitch_integrator, dbg.motor_output,
-    freq.position_hz, freq.velocity_hz, saturated,
+    s_ctx->position_x, s_ctx->heading,
+    freq.position_hz, freq.velocity_hz, freq.angle_hz, saturated,
     dbg.running ? 1 : 0, (unsigned)dbg.fault_flags, dbg.enable_gain,
     runtime.total_runtime_sec, runtime.fault_count_total, runtime.max_pitch_ever);
 
@@ -310,8 +312,9 @@ static void handleSetCtrl(const char* buf, AsyncWebSocketClient* client) {
   if (!parseKey(buf, key, sizeof(key))) return;
   float val = parseValue(buf);
 
-  if      (strcmp(key, "motor_enable") == 0)   s_ctx->cmd_state.motor_enable   = (val != 0.f);
+  if      (strcmp(key, "motor_enable") == 0)    s_ctx->cmd_state.motor_enable   = (val != 0.f);
   else if (strcmp(key, "balance_enable") == 0)  s_ctx->cmd_state.balance_enable = (val != 0.f);
+  else if (strcmp(key, "remote_mode") == 0)     s_ctx->remote_mode = (val != 0.f);
 
   char ack[128];
   snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_ctrl\",\"key\":\"%s\",\"value\":%.0f}", key, val);
@@ -320,11 +323,23 @@ static void handleSetCtrl(const char* buf, AsyncWebSocketClient* client) {
 
 static void handleSetTarget(const char* buf, AsyncWebSocketClient* client) {
   if (!s_ctx) return;
+  char key[32];
+  if (!parseKey(buf, key, sizeof(key))) return;
   float val = parseValue(buf);
-  s_ctx->cmd_state.manual_target = val;
 
-  char ack[64];
-  snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_target\",\"value\":%.3f}", val);
+  if (strcmp(key, "linear_vel") == 0) {
+    // Linear velocity command: update target position rate
+    // For now, directly set as target heading rate for position loop
+    s_ctx->target_heading_rate = val;  // Reuse field for velocity command
+  } else if (strcmp(key, "yaw_rate") == 0) {
+    s_ctx->target_heading_rate = val;
+  } else {
+    // Legacy single-value target
+    s_ctx->cmd_state.manual_target = val;
+  }
+
+  char ack[128];
+  snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_target\",\"key\":\"%s\",\"value\":%.3f}", key, val);
   client->text(ack);
 }
 
@@ -390,9 +405,17 @@ void wifi_debug_init(AppContext& ctx) {
 
   ws.onEvent(onWsEvent);
   server.addHandler(&ws);
+
+  // Main page and control page
   server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+  server.on("/control", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->send(LittleFS, "/control.html", "text/html");
+  });
+
   server.begin();
   Serial.println("HTTP + WebSocket server started");
+  Serial.println("Main page: http://192.168.4.1/");
+  Serial.println("Control page: http://192.168.4.1/control");
 }
 
 void wifiDebugTask(void* arg) {

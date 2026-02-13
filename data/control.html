@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>BalanceBot 遥控</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+body {
+  font-family: -apple-system, system-ui, sans-serif;
+  background: #0d1117;
+  color: #c9d1d9;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.header {
+  background: #161b22;
+  padding: 10px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #30363d;
+}
+.header h1 { font-size: 16px; color: #58a6ff; }
+.status {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.status.ok { background: #238636; color: #fff; }
+.status.err { background: #da3633; color: #fff; }
+.info-bar {
+  background: #161b22;
+  padding: 8px 16px;
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  border-bottom: 1px solid #30363d;
+}
+.info-item { display: flex; gap: 6px; }
+.info-item .label { color: #8b949e; }
+.info-item .value { color: #3fb950; font-family: monospace; }
+.joystick-area {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 40px;
+  position: relative;
+}
+.joystick {
+  width: 140px;
+  height: 140px;
+  background: #21262d;
+  border: 2px solid #30363d;
+  border-radius: 50%;
+  position: relative;
+  touch-action: none;
+}
+.joystick.active { border-color: #58a6ff; }
+.joystick-knob {
+  width: 50px;
+  height: 50px;
+  background: #58a6ff;
+  border-radius: 50%;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  transition: none;
+  box-shadow: 0 2px 8px rgba(88, 166, 255, 0.4);
+}
+.joystick-label {
+  position: absolute;
+  bottom: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: #8b949e;
+  text-align: center;
+  white-space: nowrap;
+}
+.controls {
+  background: #161b22;
+  padding: 16px;
+  border-top: 1px solid #30363d;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+.btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-stop {
+  background: #da3633;
+  color: #fff;
+}
+.btn-stop:hover { background: #f85149; }
+.btn-mode {
+  background: #8957e5;
+  color: #fff;
+}
+.btn-mode:hover { background: #a371f7; }
+.btn-home {
+  background: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+}
+.btn-home:hover { background: #30363d; }
+.e-stop-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.8);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+.e-stop-overlay.active { display: flex; }
+.e-stop-btn {
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: #da3633;
+  color: #fff;
+  font-size: 24px;
+  font-weight: bold;
+  border: 8px solid #f85149;
+  cursor: pointer;
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>BalanceBot 遥控</h1>
+  <span id="conn-status" class="status err">Disconnected</span>
+</div>
+
+<div class="info-bar">
+  <div class="info-item">
+    <span class="label">位置:</span>
+    <span id="pos-val" class="value">0.00 m</span>
+  </div>
+  <div class="info-item">
+    <span class="label">航向:</span>
+    <span id="heading-val" class="value">0°</span>
+  </div>
+  <div class="info-item">
+    <span class="label">模式:</span>
+    <span id="mode-val" class="value">定点</span>
+  </div>
+</div>
+
+<div class="joystick-area">
+  <div class="joystick" id="left-joystick">
+    <div class="joystick-knob"></div>
+    <div class="joystick-label">前进/后退</div>
+  </div>
+  <div class="joystick" id="right-joystick">
+    <div class="joystick-knob"></div>
+    <div class="joystick-label">左转/右转</div>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="btn btn-home" onclick="goHome()">返回主页</button>
+  <button class="btn btn-mode" onclick="toggleMode()">切换模式</button>
+  <button class="btn btn-stop" onclick="emergencyStop()">紧急停止</button>
+</div>
+
+<div class="e-stop-overlay" id="e-stop-overlay" onclick="resume()">
+  <button class="e-stop-btn">点击恢复</button>
+</div>
+
+<script>
+// WebSocket connection
+let ws = null;
+let reconnectTimer = null;
+const wsUrl = `ws://${location.host}/ws`;
+
+// Joystick state
+const leftJoy = { x: 0, y: 0, active: false };
+const rightJoy = { x: 0, y: 0, active: false };
+let remoteMode = false;
+let eStopped = false;
+
+// Connect to WebSocket
+function connect() {
+  ws = new WebSocket(wsUrl);
+
+  ws.onopen = () => {
+    console.log('WebSocket connected');
+    document.getElementById('conn-status').textContent = 'Connected';
+    document.getElementById('conn-status').className = 'status ok';
+
+    // Enable remote mode on connect
+    sendCommand('set_ctrl', 'remote_mode', 1);
+  };
+
+  ws.onclose = () => {
+    console.log('WebSocket disconnected');
+    document.getElementById('conn-status').textContent = 'Disconnected';
+    document.getElementById('conn-status').className = 'status err';
+    reconnectTimer = setTimeout(connect, 1000);
+  };
+
+  ws.onerror = (err) => {
+    console.error('WebSocket error:', err);
+  };
+
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'telem') {
+        updateTelemetry(msg);
+      }
+    } catch (err) {
+      console.error('Parse error:', err);
+    }
+  };
+}
+
+// Send command via WebSocket
+function sendCommand(cmd, key, value) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ cmd, key, value }));
+  }
+}
+
+// Update telemetry display
+function updateTelemetry(data) {
+  document.getElementById('pos-val').textContent = (data.pos || 0).toFixed(2) + ' m';
+  document.getElementById('heading-val').textContent = Math.round((data.heading || 0) * 180 / Math.PI) + '°';
+}
+
+// Toggle remote/hold mode
+function toggleMode() {
+  remoteMode = !remoteMode;
+  document.getElementById('mode-val').textContent = remoteMode ? '遥控' : '定点';
+  sendCommand('set_ctrl', 'remote_mode', remoteMode ? 1 : 0);
+}
+
+// Emergency stop
+function emergencyStop() {
+  eStopped = true;
+  sendCommand('set_ctrl', 'balance_enable', 0);
+  document.getElementById('e-stop-overlay').classList.add('active');
+}
+
+// Resume from emergency stop
+function resume() {
+  eStopped = false;
+  sendCommand('set_ctrl', 'balance_enable', 1);
+  document.getElementById('e-stop-overlay').classList.remove('active');
+}
+
+// Go back to main page
+function goHome() {
+  sendCommand('set_ctrl', 'remote_mode', 0);
+  window.location.href = '/';
+}
+
+// Joystick setup
+function setupJoystick(element, state, isLeft) {
+  const knob = element.querySelector('.joystick-knob');
+  const rect = element.getBoundingClientRect();
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  const maxDist = centerX - 25; // knob radius
+
+  function updateKnob() {
+    const x = state.x * maxDist;
+    const y = state.y * maxDist;
+    knob.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+  }
+
+  function handleStart(e) {
+    e.preventDefault();
+    state.active = true;
+    element.classList.add('active');
+    handleMove(e);
+  }
+
+  function handleMove(e) {
+    if (!state.active) return;
+    e.preventDefault();
+
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const rect = element.getBoundingClientRect();
+
+    const dx = clientX - rect.left - centerX;
+    const dy = clientY - rect.top - centerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const maxDistPx = maxDist;
+
+    if (dist > maxDistPx) {
+      state.x = dx / dist * (maxDistPx / centerX);
+      state.y = dy / dist * (maxDistPx / centerY);
+    } else {
+      state.x = dx / centerX;
+      state.y = dy / centerY;
+    }
+
+    updateKnob();
+    sendJoystickCommands();
+  }
+
+  function handleEnd(e) {
+    e.preventDefault();
+    state.active = false;
+    state.x = 0;
+    state.y = 0;
+    element.classList.remove('active');
+    updateKnob();
+    sendJoystickCommands();
+  }
+
+  element.addEventListener('mousedown', handleStart);
+  element.addEventListener('touchstart', handleStart, { passive: false });
+
+  document.addEventListener('mousemove', handleMove);
+  document.addEventListener('touchmove', handleMove, { passive: false });
+
+  document.addEventListener('mouseup', handleEnd);
+  document.addEventListener('touchend', handleEnd);
+}
+
+// Send joystick commands to robot
+let lastCmdTime = 0;
+function sendJoystickCommands() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+  // Throttle to 20Hz
+  const now = Date.now();
+  if (now - lastCmdTime < 50) return;
+  lastCmdTime = now;
+
+  if (eStopped) return;
+
+  // Left joystick Y: target position rate (forward/back)
+  // Invert Y because screen Y is down
+  const linearCmd = -leftJoy.y * 0.5;  // 0.5 m/s max
+
+  // Right joystick X: target yaw rate (rotation)
+  const yawCmd = rightJoy.x * 3.0;  // 3 rad/s max
+
+  // Send commands
+  // Linear velocity sets position target rate
+  sendCommand('set_target', 'linear_vel', linearCmd);
+  sendCommand('set_target', 'yaw_rate', yawCmd);
+}
+
+// Initialize
+connect();
+setupJoystick(document.getElementById('left-joystick'), leftJoy, true);
+setupJoystick(document.getElementById('right-joystick'), rightJoy, false);
+
+// Periodic command update (in case joystick held steady)
+setInterval(sendJoystickCommands, 100);
+</script>
+</body>
+</html>
