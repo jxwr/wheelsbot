@@ -79,19 +79,14 @@ static void balanceTask(void* arg) {
   uint32_t lastUs = micros();
 
   // Controller tuning
-  ctx->cascade.angleLoop().setGains(10.0f, 0.0f, 0.4f);
-  ctx->cascade.velocityLoop().setGains(0.5f, 0.1f, 0.0f);  // PI for velocity holding
+  ctx->cascade.angleLoop().setGains(8.0f, 0.0f, 0.4f);
+  ctx->cascade.velocityLoop().setGains(0.01f, 0.01f, 0.0f);  // PI for velocity holding
   ctx->cascade.positionLoop().setGains(1.0f, 0.0f, 0.0f);  // P-only for position
 
   // Navigation state
   float position = 0.0f;      // Integrated linear position (m)
   float heading = 0.0f;       // Integrated heading (rad)
   float last_wL = 0.0f, last_wR = 0.0f;  // For trapezoidal integration
-
-  // Yaw control
-  constexpr float YAW_KP = 2.0f;           // Yaw rate P gain
-  constexpr float MAX_YAW_RATE = 3.0f;     // rad/s max rotation
-  constexpr float DIFF_RATIO = 0.3f;       // Max 30% differential
 
   while (true) {
     uint32_t nowUs = micros();
@@ -100,8 +95,9 @@ static void balanceTask(void* arg) {
     lastUs = nowUs;
 
     // Get sensor data
-    float wL = ctx->wheel_state.valid ? ctx->wheel_state.wL : 0.0f;
-    float wR = ctx->wheel_state.valid ? ctx->wheel_state.wR : 0.0f;
+    // Note: wL/wR negated to match physical direction (positive = forward)
+    float wL = ctx->wheel_state.valid ? -ctx->wheel_state.wL : 0.0f;
+    float wR = ctx->wheel_state.valid ? -ctx->wheel_state.wR : 0.0f;
     float wheel_vel = (wL + wR) * 0.5f;  // Average wheel velocity (rad/s)
     float gyro_z = ctx->imu_state.valid ? ctx->imu_state.gz : 0.0f;  // Yaw rate
 
@@ -163,22 +159,23 @@ static void balanceTask(void* arg) {
       // Extract longitudinal command from cascade
       float longitudinal_cmd = cout.left_motor;  // Same for both wheels
 
-      // Compute yaw command (differential)
-      float yaw_cmd = 0.0f;
+      // Compute yaw differential command
+      // Map target yaw rate directly to wheel speed differential (open-loop for responsiveness)
+      float yaw_diff = 0.0f;
       if (fabsf(target_yaw_rate) > 0.05f) {  // Deadband
-        // Simple P control on yaw rate
-        float yaw_rate_error = target_yaw_rate - gyro_z;
-        yaw_cmd = YAW_KP * yaw_rate_error;
-        // Limit yaw command
-        yaw_cmd = clamp(yaw_cmd, -MAX_YAW_RATE, MAX_YAW_RATE);
-        // Scale by longitudinal to prevent tipping during rotation
-        float scale = fminf(1.0f, fabsf(longitudinal_cmd) / 2.0f + 0.3f);
-        yaw_cmd *= scale;
+        // Convert yaw rate to wheel speed differential: omega_yaw * track_width / wheel_radius
+        // This gives the additional wheel speed needed for rotation
+        yaw_diff = target_yaw_rate * TRACK_WIDTH_M / (2.0f * WHEEL_RADIUS_M);
+        // Limit differential to prevent motor saturation
+        float max_diff = fabsf(longitudinal_cmd) > 3.0f ? 3.0f : (6.0f - fabsf(longitudinal_cmd));
+        yaw_diff = clamp(yaw_diff, -max_diff, max_diff);
       }
 
       // Apply differential to get final wheel commands
-      float left_cmd = longitudinal_cmd + yaw_cmd * DIFF_RATIO;
-      float right_cmd = longitudinal_cmd - yaw_cmd * DIFF_RATIO;
+      // When going straight: left = right = longitudinal_cmd
+      // When turning: one wheel speeds up, other slows down
+      float left_cmd = longitudinal_cmd + yaw_diff;
+      float right_cmd = longitudinal_cmd - yaw_diff;
 
       ctx->bal_state.left_target = left_cmd;
       ctx->bal_state.right_target = right_cmd;

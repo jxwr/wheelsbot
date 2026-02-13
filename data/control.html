@@ -39,10 +39,51 @@ body {
   gap: 16px;
   font-size: 12px;
   border-bottom: 1px solid #30363d;
+  flex-wrap: wrap;
 }
 .info-item { display: flex; gap: 6px; }
 .info-item .label { color: #8b949e; }
 .info-item .value { color: #3fb950; font-family: monospace; }
+
+/* Telemetry grid styles */
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 12px 16px;
+  background: #0d1117;
+  border-bottom: 1px solid #30363d;
+}
+.telemetry-item {
+  background: #161b22;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #30363d;
+}
+.telemetry-item .label {
+  display: block;
+  font-size: 10px;
+  color: #8b949e;
+  margin-bottom: 2px;
+}
+.telemetry-item .value {
+  display: block;
+  font-size: 14px;
+  color: #3fb950;
+  font-family: monospace;
+  font-weight: 600;
+}
+.telemetry-item .unit {
+  font-size: 10px;
+  color: #484f58;
+  margin-left: 4px;
+}
+.telemetry-item.warning .value { color: #f0883e; }
+.telemetry-item.danger .value { color: #f85149; }
+
+@media (max-width: 800px) {
+  .telemetry-grid { grid-template-columns: repeat(2, 1fr); }
+}
 .joystick-area {
   flex: 1;
   display: flex;
@@ -180,18 +221,79 @@ body {
   <span id="conn-status" class="status err">Disconnected</span>
 </div>
 
+<!-- Telemetry Dashboard -->
+<div class="telemetry-grid">
+  <!-- Row 1: Position & Attitude -->
+  <div class="telemetry-item">
+    <span class="label">位置</span>
+    <span id="t-pos" class="value">0.00<span class="unit">m</span></span>
+  </div>
+  <div class="telemetry-item">
+    <span class="label">航向</span>
+    <span id="t-heading" class="value">0<span class="unit">°</span></span>
+  </div>
+  <div class="telemetry-item">
+    <span class="label">俯仰角</span>
+    <span id="t-pitch" class="value">0.0<span class="unit">°</span></span>
+  </div>
+  <div class="telemetry-item">
+    <span class="label">横滚角</span>
+    <span id="t-roll" class="value">0.0<span class="unit">°</span></span>
+  </div>
+
+  <!-- Row 2: Velocity & Control -->
+  <div class="telemetry-item">
+    <span class="label">轮速</span>
+    <span id="t-vel" class="value">0.0<span class="unit">rad/s</span></span>
+  </div>
+  <div class="telemetry-item">
+    <span class="label">线速度</span>
+    <span id="t-linear" class="value">0.00<span class="unit">m/s</span></span>
+  </div>
+  <div class="telemetry-item">
+    <span class="label">偏航率</span>
+    <span id="t-yaw-rate" class="value">0.0<span class="unit">rad/s</span></span>
+  </div>
+  <div class="telemetry-item">
+    <span class="label">电机输出</span>
+    <span id="t-motor" class="value">0.0<span class="unit">V</span></span>
+  </div>
+
+  <!-- Row 3: Control Loop Status -->
+  <div class="telemetry-item">
+    <span class="label">位置误差</span>
+    <span id="t-pos-err" class="value">0.000<span class="unit">m</span></span>
+  </div>
+  <div class="telemetry-item">
+    <span class="label">速度指令</span>
+    <span id="t-vel-cmd" class="value">0.0<span class="unit">rad/s</span></span>
+  </div>
+  <div class="telemetry-item">
+    <span class="label">姿态指令</span>
+    <span id="t-pitch-cmd" class="value">0.0<span class="unit">°</span></span>
+  </div>
+  <div class="telemetry-item">
+    <span class="label">运行状态</span>
+    <span id="t-state" class="value">--</span>
+  </div>
+</div>
+
 <div class="info-bar">
   <div class="info-item">
-    <span class="label">位置:</span>
-    <span id="pos-val" class="value">0.00 m</span>
+    <span class="label">左电机:</span>
+    <span id="left-motor-val" class="value">0.0V</span>
   </div>
   <div class="info-item">
-    <span class="label">航向:</span>
-    <span id="heading-val" class="value">0°</span>
+    <span class="label">右电机:</span>
+    <span id="right-motor-val" class="value">0.0V</span>
   </div>
   <div class="info-item">
     <span class="label">模式:</span>
     <span id="mode-val" class="value">定点</span>
+  </div>
+  <div class="info-item">
+    <span class="label">运行时间:</span>
+    <span id="runtime-val" class="value">0s</span>
   </div>
 </div>
 
@@ -287,9 +389,41 @@ function sendCommand(type, key, value) {
 }
 
 // Update telemetry display
+const stateNames = ['停止', '运行中', '故障'];
+
 function updateTelemetry(data) {
-  document.getElementById('pos-val').textContent = (data.pos || 0).toFixed(2) + ' m';
-  document.getElementById('heading-val').textContent = Math.round((data.heading || 0) * 180 / Math.PI) + '°';
+  // Position & Attitude
+  setValue('t-pos', (data.pos || 0).toFixed(2));
+  setValue('t-heading', Math.round((data.heading || 0) * 180 / Math.PI));
+  setValue('t-pitch', (data.pitch_deg || 0).toFixed(1));
+  setValue('t-roll', (data.roll_deg || 0).toFixed(1));
+
+  // Velocity & Control
+  const wheelVel = data.vel || 0;
+  setValue('t-vel', wheelVel.toFixed(1));
+  setValue('t-linear', (wheelVel * 0.035).toFixed(2)); // rad/s -> m/s
+  setValue('t-yaw-rate', (data.pr || 0).toFixed(1));
+  setValue('t-motor', (data.motor || 0).toFixed(1));
+
+  // Control Loop Status
+  setValue('t-pos-err', (data.pos_error || 0).toFixed(3));
+  setValue('t-vel-cmd', (data.vel_target || 0).toFixed(1));
+  setValue('t-pitch-cmd', ((data.pitch_cmd || 0) * 180 / Math.PI).toFixed(1));
+
+  const state = data.state || 0;
+  const stateEl = document.getElementById('t-state');
+  stateEl.textContent = stateNames[state] || '未知';
+  stateEl.style.color = state === 1 ? '#3fb950' : (state === 2 ? '#f85149' : '#8b949e');
+
+  // Info bar
+  document.getElementById('left-motor-val').textContent = (data.motor || 0).toFixed(1) + 'V';
+  document.getElementById('right-motor-val').textContent = (data.motor || 0).toFixed(1) + 'V';
+  document.getElementById('runtime-val').textContent = (data.runtime || 0) + 's';
+}
+
+function setValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.childNodes[0].textContent = value;
 }
 
 // Toggle remote/hold mode
