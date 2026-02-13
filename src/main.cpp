@@ -82,11 +82,10 @@ static void balanceTask(void* arg) {
   // Controller tuning (position loop disabled)
   ctx->cascade.angleLoop().setGains(8.0f, 0.0f, 0.4f);
   ctx->cascade.velocityLoop().setGains(0.03f, 0.0f, 0.0f);  // Pure P, no integral windup
+  ctx->cascade.velocityLoop().setMaxTiltCommand(0.14f);  // Default max tilt for velocity loop
 
   // Navigation state
-  float position = 0.0f;      // Integrated linear position (m)
   float heading = 0.0f;       // Integrated heading (rad)
-  float last_wL = 0.0f, last_wR = 0.0f;  // For trapezoidal integration
 
   while (true) {
     uint32_t nowUs = micros();
@@ -101,18 +100,14 @@ static void balanceTask(void* arg) {
     float wheel_vel = (wL + wR) * 0.5f;  // Average wheel velocity (rad/s)
     float gyro_z = ctx->imu_state.valid ? ctx->imu_state.gz : 0.0f;  // Yaw rate
 
-    // Integrate position (trapezoidal for accuracy)
-    float linear_vel = wheel_vel * WHEEL_RADIUS_M;  // m/s
-    position += linear_vel * dt;
-
     // Integrate heading
     heading += gyro_z * dt;
     // Normalize heading to [-pi, pi]
-    while (heading > M_PI) heading -= 2 * M_PI;
-    while (heading < -M_PI) heading += 2 * M_PI;
+    constexpr float PIf = 3.14159265358979f;
+    while (heading > PIf) heading -= 2 * PIf;
+    while (heading < -PIf) heading += 2 * PIf;
 
-    // Update shared state for telemetry
-    ctx->position_x = position;
+    // Update shared state for telemetry (heading only, no position loop)
     ctx->heading = heading;
 
     // Determine target based on mode
@@ -133,12 +128,8 @@ static void balanceTask(void* arg) {
 
     // Prepare cascade input
     CascadeInput cin;
-    cin.position_reference = position;  // Not used (position loop disabled)
-    cin.position_measurement = position;
     // Convert linear velocity (m/s) to wheel velocity (rad/s) for cascade
     cin.velocity_reference = velocity_reference / WHEEL_RADIUS_M;  // m/s -> rad/s
-    // Always use VELOCITY_MODE (position loop disabled)
-    cin.mode = ControlMode::VELOCITY_MODE;
     cin.velocity_measurement = wheel_vel;  // already in rad/s
     cin.pitch_measurement = ctx->imu_state.valid
         ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;
@@ -183,8 +174,6 @@ static void balanceTask(void* arg) {
       ctx->bal_state.ok = false;
     }
 
-    last_wL = wL;
-    last_wR = wR;
     vTaskDelayUntil(&last, period);
   }
 }

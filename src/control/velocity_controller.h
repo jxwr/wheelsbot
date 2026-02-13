@@ -32,7 +32,10 @@ class VelocityController : public ControlLoop {
   const PidController& pid() const { return pid_; }
 
   // Set maximum tilt command (safety limit)
-  void setMaxTiltCommand(float max_tilt_rad) { max_tilt_ = max_tilt_rad; }
+  void setMaxTiltCommand(float max_tilt_rad) {
+    max_tilt_ = max_tilt_rad;
+    pid_.setOutputLimits(-max_tilt_, max_tilt_);
+  }
   float getMaxTiltCommand() const { return max_tilt_; }
 
  private:

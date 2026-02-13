@@ -10,8 +10,9 @@ body {
   font-family: -apple-system, system-ui, sans-serif;
   background: #0d1117;
   color: #c9d1d9;
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
 }
@@ -84,13 +85,56 @@ body {
 @media (max-width: 800px) {
   .telemetry-grid { grid-template-columns: repeat(2, 1fr); }
 }
+@media (max-width: 480px) {
+  .telemetry-grid {
+    grid-template-columns: repeat(2, 1fr);
+    padding: 8px;
+    gap: 6px;
+  }
+  .telemetry-item {
+    padding: 6px 8px;
+  }
+  .telemetry-item .label {
+    font-size: 9px;
+  }
+  .telemetry-item .value {
+    font-size: 12px;
+  }
+  .info-bar {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+  .params {
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+  }
+  .param-item input {
+    width: 70px;
+  }
+  .btn {
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+}
 .joystick-area {
   flex: 1;
+  min-height: 180px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 40px;
+  padding: 20px 40px 40px;
   position: relative;
+}
+@media (max-width: 600px) {
+  .joystick-area {
+    padding: 20px 30px 50px;
+    gap: 20px;
+  }
+  .joystick {
+    width: 120px;
+    height: 120px;
+  }
 }
 .joystick {
   width: 140px;
@@ -223,11 +267,7 @@ body {
 
 <!-- Telemetry Dashboard -->
 <div class="telemetry-grid">
-  <!-- Row 1: Position & Attitude -->
-  <div class="telemetry-item">
-    <span class="label">位置</span>
-    <span id="t-pos" class="value">0.00<span class="unit">m</span></span>
-  </div>
+  <!-- Row 1: Attitude -->
   <div class="telemetry-item">
     <span class="label">航向</span>
     <span id="t-heading" class="value">0<span class="unit">°</span></span>
@@ -239,6 +279,10 @@ body {
   <div class="telemetry-item">
     <span class="label">横滚角</span>
     <span id="t-roll" class="value">0.0<span class="unit">°</span></span>
+  </div>
+  <div class="telemetry-item">
+    <span class="label">电机输出</span>
+    <span id="t-motor" class="value">0.0<span class="unit">V</span></span>
   </div>
 
   <!-- Row 2: Velocity & Control -->
@@ -253,24 +297,6 @@ body {
   <div class="telemetry-item">
     <span class="label">偏航率</span>
     <span id="t-yaw-rate" class="value">0.0<span class="unit">rad/s</span></span>
-  </div>
-  <div class="telemetry-item">
-    <span class="label">电机输出</span>
-    <span id="t-motor" class="value">0.0<span class="unit">V</span></span>
-  </div>
-
-  <!-- Row 3: Control Loop Status -->
-  <div class="telemetry-item">
-    <span class="label">位置误差</span>
-    <span id="t-pos-err" class="value">0.000<span class="unit">m</span></span>
-  </div>
-  <div class="telemetry-item">
-    <span class="label">速度指令</span>
-    <span id="t-vel-cmd" class="value">0.0<span class="unit">rad/s</span></span>
-  </div>
-  <div class="telemetry-item">
-    <span class="label">姿态指令</span>
-    <span id="t-pitch-cmd" class="value">0.0<span class="unit">°</span></span>
   </div>
   <div class="telemetry-item">
     <span class="label">运行状态</span>
@@ -407,7 +433,6 @@ function updateTelemetry(data) {
   setValue('t-motor', (data.motor || 0).toFixed(1));
 
   // Control Loop Status
-  setValue('t-pos-err', (data.pos_error || 0).toFixed(3));
   setValue('t-vel-cmd', (data.vel_target || 0).toFixed(1));
   setValue('t-pitch-cmd', ((data.pitch_cmd || 0) * 180 / Math.PI).toFixed(1));
 

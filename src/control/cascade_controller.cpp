@@ -9,7 +9,6 @@ namespace control {
 CascadeController::CascadeController() { reset(); }
 
 void CascadeController::reset() {
-  position_.reset();
   velocity_.reset();
   angle_.reset();
   state_ = STATE_DISABLED;
@@ -37,13 +36,11 @@ void CascadeController::getDebug(CascadeDebug& out) const {
 }
 
 void CascadeController::getFrequencyStats(FrequencyStats& out) const {
-  out.position_hz = measured_position_hz_;
   out.velocity_hz = measured_velocity_hz_;
   out.angle_hz = measured_angle_hz_;
 }
 
 void CascadeController::getLimitStatus(LimitStatus& out) const {
-  out.position_saturated = position_saturated_;
   out.velocity_saturated = velocity_saturated_;
   out.angle_saturated = angle_saturated_;
   out.motor_saturated = motor_saturated_;
@@ -68,10 +65,6 @@ void CascadeController::setParams(const Params& p) {
   velocity_.setGains(p.velocity_kp, p.velocity_ki, 0.0f);
   velocity_.setMaxTiltCommand(p.velocity_max_tilt);
 
-  // Apply position loop parameters (PI only, no D)
-  position_.setGains(p.position_kp, p.position_ki, 0.0f);
-  position_.setMaxVelocity(p.position_max_vel);
-
   // Apply cascade-level parameters
   max_tilt_ = p.max_tilt;
   ramp_time_ = p.ramp_time;
@@ -92,11 +85,6 @@ void CascadeController::getParams(Params& p) const {
   p.velocity_ki = velocity_.pid().getKi();
   p.velocity_max_tilt = velocity_.getMaxTiltCommand();
 
-  // Get position loop parameters
-  p.position_kp = position_.pid().getKp();
-  p.position_ki = position_.pid().getKi();
-  p.position_max_vel = position_.getMaxVelocity();
-
   // Get cascade-level parameters
   p.max_tilt = max_tilt_;
   p.ramp_time = ramp_time_;
@@ -108,14 +96,10 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
   out.left_motor = 0.0f;
   out.right_motor = 0.0f;
   out.pitch_cmd = 0.0f;
-  out.velocity_cmd = 0.0f;
   out.valid = false;
   out.fault_flags = CASCADE_FAULT_NONE;
 
   // Clear debug output defaults
-  debug_.position_error = 0.0f;
-  debug_.position_integrator = 0.0f;
-  debug_.velocity_cmd = 0.0f;
   debug_.velocity_error = 0.0f;
   debug_.velocity_integrator = 0.0f;
   debug_.pitch_error = 0.0f;
@@ -154,7 +138,6 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
   if (in.enabled && !was_enabled_) {
     enable_time_ = 0.0f;
     enable_gain_ = 0.0f;
-    position_.reset();
     velocity_.reset();
     angle_.reset();
     sensor_bad_time_ = 0.0f;
@@ -203,63 +186,18 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
   if (elapsed_ms >= 1000) {
     measured_angle_hz_ = angle_step_count_ * 1000.0f / elapsed_ms;
     measured_velocity_hz_ = velocity_step_count_ * 1000.0f / elapsed_ms;
-    measured_position_hz_ = position_step_count_ * 1000.0f / elapsed_ms;
     angle_step_count_ = 0;
     velocity_step_count_ = 0;
-    position_step_count_ = 0;
     last_time_ms_ = now_ms;
   }
 
-  // ==== OUTERMOST LOOP: Position -> Velocity Command (decimated) ====
-  step_counter_++;
-  bool run_position = (step_counter_ % position_decimation_) == 0;
-
-  float velocity_reference;
-
-  if (in.mode == ControlMode::VELOCITY_MODE) {
-    // Remote control mode: use direct velocity command, bypass position loop
-    velocity_reference = in.velocity_reference;
-    debug_.position_error = 0.0f;
-    debug_.position_integrator = 0.0f;
-
-    // Reset position loop to prevent integral windup
-    if (run_position) {
-      position_.reset();
-    }
-  } else {
-    // Position hold mode: run position loop to maintain position
-    if (run_position) {
-      position_step_count_++;
-
-      ControlInput pos_in;
-      pos_in.reference = in.position_reference;
-      pos_in.measurement = in.position_measurement;
-      pos_in.measurement_rate = 0.0f;
-      pos_in.dt = in.dt * position_decimation_;
-
-      ControlOutput pos_out;
-      bool pos_ok = position_.step(pos_in, pos_out);
-
-      float max_vel = position_.getMaxVelocity();
-      position_saturated_ = fabsf(pos_out.control) >= max_vel * 0.99f;
-
-      debug_.position_error = pos_in.reference - pos_in.measurement;
-      debug_.position_integrator = position_.pid().getIntegral();
-
-      if (!pos_ok) {
-        pos_out.control = 0.0f;
-      }
-
-      last_velocity_cmd_ = pos_out.control;
-    }
-    velocity_reference = last_velocity_cmd_;
-  }
-  debug_.velocity_cmd = velocity_reference;
-
   // ==== OUTER LOOP: Velocity -> Pitch Command (decimated) ====
+  step_counter_++;
   bool run_velocity = (step_counter_ % velocity_decimation_) == 0;
 
   float pitch_reference;
+  float velocity_reference = in.velocity_reference;
+
   if (run_velocity) {
     velocity_step_count_++;
 
@@ -338,7 +276,6 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
   out.left_motor = motor_cmd;
   out.right_motor = motor_cmd;
   out.pitch_cmd = pitch_reference;
-  out.velocity_cmd = velocity_reference;
   out.valid = true;
   out.fault_flags = 0;
 
@@ -352,3 +289,4 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
 
 }  // namespace control
 }  // namespace wheelsbot
+
