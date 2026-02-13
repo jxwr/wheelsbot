@@ -79,10 +79,9 @@ static void balanceTask(void* arg) {
   ctx->cascade.reset();
   uint32_t lastUs = micros();
 
-  // Controller tuning
+  // Controller tuning (position loop disabled)
   ctx->cascade.angleLoop().setGains(8.0f, 0.0f, 0.4f);
-  ctx->cascade.velocityLoop().setGains(0.03f, 0.02f, 0.0f);  // PI for velocity holding
-  ctx->cascade.positionLoop().setGains(1.0f, 0.0f, 0.0f);  // P-only for position
+  ctx->cascade.velocityLoop().setGains(0.03f, 0.0f, 0.0f);  // Pure P, no integral windup
 
   // Navigation state
   float position = 0.0f;      // Integrated linear position (m)
@@ -117,42 +116,29 @@ static void balanceTask(void* arg) {
     ctx->heading = heading;
 
     // Determine target based on mode
-    float position_reference = position;  // Default: hold current position
+    // Note: Position loop disabled. Both modes use VELOCITY_MODE with direct velocity control.
+    // - Hold mode: velocity_reference = 0 (just balance, don't try to move)
+    // - Remote mode: velocity_reference from joystick
     float velocity_reference = 0.0f;      // Default: no velocity command
     float target_yaw_rate = ctx->target_yaw_rate;
 
-    static bool was_remote = true;
-    if (!ctx->remote_mode) {
-      // Hold position mode: use position loop to maintain position
-      if (was_remote) {
-        ctx->target_position = position;
-      }
-      was_remote = false;
-      position_reference = ctx->target_position;
-      target_yaw_rate = 0.0f;  // No rotation in hold mode
-    } else {
-      // Remote mode: bypass position loop, directly control velocity
-      was_remote = true;
-      position_reference = position;  // Keep position reference at current (no position error)
-      velocity_reference = ctx->target_linear_vel;  // Direct velocity command from joystick
-    }
-
-    // Dynamic gain adjustment based on mode
-    // Remote mode: pure P control (no integral windup when pushing by hand)
-    // Position mode: PI control (integral eliminates steady-state error for holding)
     if (ctx->remote_mode) {
-      ctx->cascade.velocityLoop().setGains(0.03f, 0.0f, 0.0f);
+      // Remote mode: use joystick velocity command
+      velocity_reference = ctx->target_linear_vel;
     } else {
-      ctx->cascade.velocityLoop().setGains(0.03f, 0.02f, 0.0f);
+      // Hold mode: just balance, no velocity command (position loop disabled)
+      velocity_reference = 0.0f;
+      target_yaw_rate = 0.0f;
     }
 
     // Prepare cascade input
     CascadeInput cin;
-    cin.position_reference = position_reference;
+    cin.position_reference = position;  // Not used (position loop disabled)
     cin.position_measurement = position;
     // Convert linear velocity (m/s) to wheel velocity (rad/s) for cascade
     cin.velocity_reference = velocity_reference / WHEEL_RADIUS_M;  // m/s -> rad/s
-    cin.mode = ctx->remote_mode ? ControlMode::VELOCITY_MODE : ControlMode::POSITION_MODE;
+    // Always use VELOCITY_MODE (position loop disabled)
+    cin.mode = ControlMode::VELOCITY_MODE;
     cin.velocity_measurement = wheel_vel;  // already in rad/s
     cin.pitch_measurement = ctx->imu_state.valid
         ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;
