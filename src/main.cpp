@@ -144,9 +144,10 @@ static void balanceTask(void* arg) {
     CascadeInput cin;
     cin.position_reference = position_reference;
     cin.position_measurement = position;
-    cin.velocity_reference = velocity_reference;  // Non-zero in remote mode bypasses position loop
+    // Convert linear velocity (m/s) to wheel velocity (rad/s) for cascade
+    cin.velocity_reference = velocity_reference / WHEEL_RADIUS_M;  // m/s -> rad/s
     cin.mode = ctx->remote_mode ? ControlMode::VELOCITY_MODE : ControlMode::POSITION_MODE;
-    cin.velocity_measurement = wheel_vel;
+    cin.velocity_measurement = wheel_vel;  // already in rad/s
     cin.pitch_measurement = ctx->imu_state.valid
         ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;
     cin.pitch_rate = ctx->imu_state.valid ? ctx->imu_state.gy : 0.0f;
