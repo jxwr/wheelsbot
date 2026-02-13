@@ -81,7 +81,7 @@ static void balanceTask(void* arg) {
 
   // Controller tuning
   ctx->cascade.angleLoop().setGains(8.0f, 0.0f, 0.4f);
-  ctx->cascade.velocityLoop().setGains(0.15f, 0.05f, 0.0f);  // PI for velocity holding
+  ctx->cascade.velocityLoop().setGains(0.03f, 0.02f, 0.0f);  // PI for velocity holding
   ctx->cascade.positionLoop().setGains(1.0f, 0.0f, 0.0f);  // P-only for position
 
   // Navigation state
@@ -135,6 +135,15 @@ static void balanceTask(void* arg) {
       was_remote = true;
       position_reference = position;  // Keep position reference at current (no position error)
       velocity_reference = ctx->target_linear_vel;  // Direct velocity command from joystick
+    }
+
+    // Dynamic gain adjustment based on mode
+    // Remote mode: pure P control (no integral windup when pushing by hand)
+    // Position mode: PI control (integral eliminates steady-state error for holding)
+    if (ctx->remote_mode) {
+      ctx->cascade.velocityLoop().setGains(0.03f, 0.0f, 0.0f);
+    } else {
+      ctx->cascade.velocityLoop().setGains(0.03f, 0.02f, 0.0f);
     }
 
     // Prepare cascade input
