@@ -119,9 +119,10 @@ static void sendTelemetry() {
 
   // Build saturation bitmask
   uint8_t saturated = 0;
-  if (limits.velocity_saturated) saturated |= 1;
-  if (limits.angle_saturated) saturated |= 2;
-  if (limits.motor_saturated) saturated |= 4;
+  if (limits.position_saturated) saturated |= 1;
+  if (limits.velocity_saturated) saturated |= 2;
+  if (limits.angle_saturated) saturated |= 4;
+  if (limits.motor_saturated) saturated |= 8;
 
   char buf[1024];
   snprintf(buf, sizeof(buf),
@@ -131,6 +132,7 @@ static void sendTelemetry() {
     "\"vel\":%.2f,\"vel_target\":%.2f,\"vel_error\":%.4f,\"vel_i\":%.4f,\"pitch_cmd\":%.4f,"
     "\"pitch_error\":%.4f,\"pitch_i\":%.4f,\"motor\":%.3f,"
     "\"pos\":%.3f,\"heading\":%.3f,"
+    "\"pos_error\":%.4f,\"pos_i\":%.4f,\"vel_cmd\":%.4f,"
     "\"pos_hz\":%.1f,\"vel_hz\":%.1f,\"ang_hz\":%.1f,\"saturated\":%u,"
     "\"state\":%d,\"fault\":%u,\"eg\":%.2f,"
     "\"runtime\":%lu,\"fault_cnt\":%u,\"max_pitch\":%.3f}",
@@ -142,6 +144,7 @@ static void sendTelemetry() {
     dbg.velocity_error, dbg.velocity_integrator, dbg.pitch_cmd,
     dbg.pitch_error, dbg.pitch_integrator, dbg.motor_output,
     s_ctx->position_x, s_ctx->heading,
+    dbg.position_error, dbg.position_integrator, dbg.velocity_cmd,
     freq.position_hz, freq.velocity_hz, freq.angle_hz, saturated,
     dbg.running ? 1 : 0, (unsigned)dbg.fault_flags, dbg.enable_gain,
     runtime.total_runtime_sec, runtime.fault_count_total, runtime.max_pitch_ever);
@@ -160,6 +163,7 @@ static void sendParams(AsyncWebSocketClient* client) {
     "\"angle_kp\":%.4f,\"angle_ki\":%.4f,\"angle_kd\":%.4f,"
     "\"angle_d_alpha\":%.3f,\"angle_max_out\":%.2f,\"angle_integrator_limit\":%.2f,"
     "\"velocity_kp\":%.4f,\"velocity_ki\":%.4f,\"velocity_max_tilt\":%.3f,"
+    "\"position_kp\":%.4f,\"position_ki\":%.4f,\"position_max_vel\":%.3f,"
     "\"max_tilt\":%.3f,\"ramp_time\":%.3f,\"pitch_offset\":%.4f},"
     "\"foc\":{\"voltage_limit\":%.2f,\"velocity_limit\":%.2f,"
     "\"pid_p\":%.6f,\"pid_i\":%.6f,\"pid_d\":%.6f},"
@@ -168,6 +172,7 @@ static void sendParams(AsyncWebSocketClient* client) {
     p.angle_kp, p.angle_ki, p.angle_kd,
     p.angle_d_alpha, p.angle_max_out, p.angle_integrator_limit,
     p.velocity_kp, p.velocity_ki, p.velocity_max_tilt,
+    p.position_kp, p.position_ki, p.position_max_vel,
     p.max_tilt, p.ramp_time, p.pitch_offset,
     (float)s_ctx->cmd_state.req_tlimit, (float)s_ctx->cmd_state.req_vlimit,
     (float)s_ctx->cmd_state.req_pid_p, (float)s_ctx->cmd_state.req_pid_i, (float)s_ctx->cmd_state.req_pid_d,
@@ -249,6 +254,26 @@ static void handleSetVelocity(const char* buf, AsyncWebSocketClient* client) {
 
   char ack[128];
   snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_velocity\",\"key\":\"%s\",\"value\":%.4f}", key, val);
+  client->text(ack);
+}
+
+static void handleSetPosition(const char* buf, AsyncWebSocketClient* client) {
+  if (!s_ctx) return;
+  char key[32];
+  if (!parseKey(buf, key, sizeof(key))) return;
+  float val = parseValue(buf);
+
+  CascadeController::Params p;
+  s_ctx->cascade.getParams(p);
+
+  if (strcmp(key, "position_kp") == 0)          p.position_kp = val;
+  else if (strcmp(key, "position_ki") == 0)     p.position_ki = val;
+  else if (strcmp(key, "position_max_vel") == 0) p.position_max_vel = val;
+
+  s_ctx->cascade.setParams(p);
+
+  char ack[128];
+  snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_position\",\"key\":\"%s\",\"value\":%.4f}", key, val);
   client->text(ack);
 }
 
@@ -361,6 +386,7 @@ static void handleCommand(uint8_t* data, size_t len, AsyncWebSocketClient* clien
 
   if      (strstr(buf, "\"set_angle\""))     handleSetAngle(buf, client);
   else if (strstr(buf, "\"set_velocity\""))  handleSetVelocity(buf, client);
+  else if (strstr(buf, "\"set_position\""))  handleSetPosition(buf, client);
   else if (strstr(buf, "\"set_safety\""))    handleSetSafety(buf, client);
   else if (strstr(buf, "\"set_foc\""))       handleSetFoc(buf, client);
   else if (strstr(buf, "\"set_ctrl\""))      handleSetCtrl(buf, client);

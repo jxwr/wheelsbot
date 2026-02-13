@@ -129,10 +129,17 @@ input:checked+.slider:before{transform:translateX(18px);background:#fff}
   </div>
 </div>
 
-<!-- Column 3: 速度环 + 安全参数 -->
+<!-- Column 3: 位置环 + 速度环 + 安全参数 -->
 <div>
   <div class="card">
-    <h2>速度环 (外环) <span class="hz" id="outer-freq">50Hz</span></h2>
+    <h2>位置环 (最外层) <span class="hz" id="position-freq">10Hz</span></h2>
+    <div class="row"><label>比例增益 Kp<span class="en">position_kp</span></label><input type="number" id="cascade-position_kp" step="0.1" value="1.0"><button class="btn btn-send" onclick="sendPosition('position_kp')">设置</button></div>
+    <div class="row"><label>积分增益 Ki<span class="en">position_ki</span></label><input type="number" id="cascade-position_ki" step="0.1" value="0.0"><button class="btn btn-send" onclick="sendPosition('position_ki')">设置</button></div>
+    <div class="row"><label>最大速度(m/s)<span class="en">position_max_vel</span></label><input type="number" id="cascade-position_max_vel" step="0.1" value="0.5"><button class="btn btn-send" onclick="sendPosition('position_max_vel')">设置</button></div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>速度环 (外环) <span class="hz" id="velocity-freq">50Hz</span></h2>
     <div class="row"><label>比例增益 Kp<span class="en">velocity_kp</span></label><input type="number" id="cascade-velocity_kp" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendVelocity('velocity_kp')">设置</button></div>
     <div class="row"><label>积分增益 Ki<span class="en">velocity_ki</span></label><input type="number" id="cascade-velocity_ki" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendVelocity('velocity_ki')">设置</button></div>
     <div class="row"><label>最大倾角(rad)<span class="en">velocity_max_tilt</span></label><input type="number" id="cascade-velocity_max_tilt" step="0.05" value="0.14"><button class="btn btn-send" onclick="sendVelocity('velocity_max_tilt')">设置</button></div>
@@ -149,6 +156,7 @@ input:checked+.slider:before{transform:translateX(18px);background:#fff}
     <h2>操作</h2>
     <button class="btn btn-send" onclick="refreshParams()" style="margin:4px;width:45%">刷新参数</button>
     <button class="btn btn-save" onclick="saveParams()" style="margin:4px;width:45%">保存到Flash</button>
+    <button class="btn btn-on" onclick="window.location.href='/control'" style="margin:4px;width:94%">打开遥控页面</button>
   </div>
 </div>
 
@@ -161,6 +169,16 @@ input:checked+.slider:before{transform:translateX(18px);background:#fff}
       <div class="telem-item"><span class="lbl">俯仰角速度</span><span class="val" id="t-pr">-</span><span class="unit">deg/s</span></div>
       <div class="telem-item"><span class="lbl">横滚角</span><span class="val" id="t-roll-deg">-</span><span class="unit">deg</span></div>
       <div class="telem-item"><span class="lbl">偏航角</span><span class="val" id="t-yaw-deg">-</span><span class="unit">deg</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <h2>位置环状态<span class="limit-led" id="led-pos"></span></h2>
+    <div class="telem-grid">
+      <div class="telem-item"><span class="lbl">位置</span><span class="val" id="t-pos">-</span><span class="unit">m</span></div>
+      <div class="telem-item"><span class="lbl">位置误差</span><span class="val" id="t-pos-error">-</span><span class="unit">m</span></div>
+      <div class="telem-item"><span class="lbl">位置积分</span><span class="val" id="t-pos-i">-</span></div>
+      <div class="telem-item"><span class="lbl">速度指令</span><span class="val" id="t-vel-cmd">-</span><span class="unit">m/s</span></div>
     </div>
   </div>
 
@@ -392,22 +410,29 @@ function handleTelem(d) {
   setText('t-roll-deg', d.roll_deg.toFixed(1));
   setText('t-yaw-deg', d.yaw_deg.toFixed(1));
 
+  // Position loop (new)
+  if (d.pos !== undefined) setText('t-pos', d.pos.toFixed(2));
+  if (d.pos_error !== undefined) setText('t-pos-error', d.pos_error.toFixed(3));
+  if (d.pos_i !== undefined) setText('t-pos-i', d.pos_i.toFixed(3));
+  if (d.vel_cmd !== undefined) setText('t-vel-cmd', d.vel_cmd.toFixed(2));
+  setSatLed('led-pos', d.saturated & 1);
+
   // Velocity loop
   setText('t-vel', d.vel.toFixed(2));
   setText('t-vel-target', d.vel_target.toFixed(2));
   setText('t-vel-error', d.vel_error.toFixed(3));
   setText('t-vel-i', d.vel_i.toFixed(3));
   setText('t-pitch-cmd', (d.pitch_cmd * 180 / Math.PI).toFixed(1));
-  setSatLed('led-vel', d.saturated & 1);
-  setSatBox('t-pitch-cmd-box', d.saturated & 1);
+  setSatLed('led-vel', d.saturated & 2);
+  setSatBox('t-pitch-cmd-box', d.saturated & 2);
 
   // Angle loop
   setText('t-pitch-error', d.pitch_error.toFixed(3));
   setText('t-pitch-i', d.pitch_i.toFixed(3));
   setText('t-motor', d.motor.toFixed(2));
   setText('t-eg', d.eg.toFixed(2));
-  setSatLed('led-angle', d.saturated & 6);
-  setSatBox('t-motor-box', d.saturated & 4);
+  setSatLed('led-angle', d.saturated & 4);
+  setSatBox('t-motor-box', d.saturated & 8);
 
   // System status
   const stateEl = document.getElementById('t-state');
@@ -417,11 +442,22 @@ function handleTelem(d) {
   faultEl.textContent = d.fault ? decodeFault(d.fault) : '无';
   faultEl.style.color = d.fault ? '#f85149' : '#7ee787';
 
-  // Frequency
-  setText('t-outer-hz', d.outer_hz.toFixed(0));
-  setText('t-inner-hz', d.inner_hz.toFixed(0));
-  document.getElementById('outer-freq').textContent = d.outer_hz.toFixed(0) + 'Hz';
-  document.getElementById('inner-freq').textContent = d.inner_hz.toFixed(0) + 'Hz';
+  // Frequency (updated for three loops)
+  if (d.pos_hz !== undefined) {
+    setText('t-pos-hz', d.pos_hz.toFixed(0));
+    document.getElementById('position-freq').textContent = d.pos_hz.toFixed(0) + 'Hz';
+  }
+  if (d.vel_hz !== undefined) {
+    setText('t-vel-hz', d.vel_hz.toFixed(0));
+    document.getElementById('velocity-freq').textContent = d.vel_hz.toFixed(0) + 'Hz';
+  }
+  if (d.ang_hz !== undefined) {
+    setText('t-ang-hz', d.ang_hz.toFixed(0));
+    document.getElementById('angle-freq').textContent = d.ang_hz.toFixed(0) + 'Hz';
+  }
+  // Legacy fields
+  if (d.outer_hz !== undefined) setText('t-outer-hz', d.outer_hz.toFixed(0));
+  if (d.inner_hz !== undefined) setText('t-inner-hz', d.inner_hz.toFixed(0));
 
   // Runtime stats
   setText('t-runtime', d.runtime);
@@ -480,6 +516,12 @@ function sendAngle(key) {
   const el = document.getElementById('cascade-' + key);
   if (ws && ws.readyState === 1 && el)
     ws.send(JSON.stringify({ type: 'set_angle', key: key, value: parseFloat(el.value) }));
+}
+
+function sendPosition(key) {
+  const el = document.getElementById('cascade-' + key);
+  if (ws && ws.readyState === 1 && el)
+    ws.send(JSON.stringify({ type: 'set_position', key: key, value: parseFloat(el.value) }));
 }
 
 function sendVelocity(key) {
