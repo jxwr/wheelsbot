@@ -81,7 +81,7 @@ static void balanceTask(void* arg) {
 
   // Controller tuning
   ctx->cascade.angleLoop().setGains(8.0f, 0.0f, 0.4f);
-  ctx->cascade.velocityLoop().setGains(0.01f, 0.01f, 0.0f);  // PI for velocity holding
+  ctx->cascade.velocityLoop().setGains(0.15f, 0.05f, 0.0f);  // PI for velocity holding
   ctx->cascade.positionLoop().setGains(1.0f, 0.0f, 0.0f);  // P-only for position
 
   // Navigation state
@@ -164,9 +164,10 @@ static void balanceTask(void* arg) {
       // Map target yaw rate directly to wheel speed differential (open-loop for responsiveness)
       float yaw_diff = 0.0f;
       if (fabsf(target_yaw_rate) > 0.05f) {  // Deadband
-        // Convert yaw rate to wheel speed differential: omega_yaw * track_width / wheel_radius
-        // This gives the additional wheel speed needed for rotation
-        yaw_diff = target_yaw_rate * TRACK_WIDTH_M / (2.0f * WHEEL_RADIUS_M);
+        // Convert yaw rate to wheel speed differential with reduced gain for smoother turning
+        // Formula: omega_yaw * track_width / (2 * wheel_radius) * gain
+        constexpr float YAW_GAIN = 0.5f;  // Reduce turning intensity
+        yaw_diff = target_yaw_rate * TRACK_WIDTH_M / (2.0f * WHEEL_RADIUS_M) * YAW_GAIN;
         // Limit differential to prevent motor saturation
         float max_diff = fabsf(longitudinal_cmd) > 3.0f ? 3.0f : (6.0f - fabsf(longitudinal_cmd));
         yaw_diff = clamp(yaw_diff, -max_diff, max_diff);

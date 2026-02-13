@@ -297,6 +297,26 @@ body {
   </div>
 </div>
 
+<!-- Control params and buttons above joysticks -->
+<div class="params">
+  <div class="param-item">
+    <label>最大速度</label>
+    <input type="number" id="max-linear-vel" value="0.5" min="0.1" max="2.0" step="0.1">
+    <span>m/s</span>
+  </div>
+  <div class="param-item">
+    <label>最大转速</label>
+    <input type="number" id="max-yaw-rate" value="2.0" min="0.5" max="4.0" step="0.5">
+    <span>rad/s</span>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="btn btn-home" onclick="goHome()">返回主页</button>
+  <button class="btn btn-mode" onclick="toggleMode()">切换模式</button>
+  <button class="btn btn-stop" onclick="emergencyStop()">紧急停止</button>
+</div>
+
 <div class="joystick-area">
   <div class="joystick" id="left-joystick">
     <div class="joystick-knob"></div>
@@ -306,25 +326,6 @@ body {
     <div class="joystick-knob"></div>
     <div class="joystick-label">左转/右转</div>
   </div>
-</div>
-
-<div class="params">
-  <div class="param-item">
-    <label>最大速度</label>
-    <input type="number" id="max-linear-vel" value="0.5" min="0.1" max="2.0" step="0.1">
-    <span>m/s</span>
-  </div>
-  <div class="param-item">
-    <label>最大转速</label>
-    <input type="number" id="max-yaw-rate" value="3.0" min="0.5" max="6.0" step="0.5">
-    <span>rad/s</span>
-  </div>
-</div>
-
-<div class="controls">
-  <button class="btn btn-home" onclick="goHome()">返回主页</button>
-  <button class="btn btn-mode" onclick="toggleMode()">切换模式</button>
-  <button class="btn btn-stop" onclick="emergencyStop()">紧急停止</button>
 </div>
 
 <div class="e-stop-overlay" id="e-stop-overlay" onclick="resume()">
