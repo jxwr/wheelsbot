@@ -50,6 +50,14 @@ struct AppContext {
   WheelShared wheel_state{};
   CommandShared cmd_state{};
 
+  // --- Navigation state (position, heading) ---
+  // Updated by balanceTask, read by wifiDebugTask
+  volatile float position_x = 0.0f;      // Linear position (m)
+  volatile float heading = 0.0f;         // Heading angle (rad)
+  volatile float target_position = 0.0f; // Target position for position loop (m)
+  volatile float target_heading_rate = 0.0f; // Target yaw rate for differential drive (rad/s)
+  volatile bool remote_mode = false;     // true = joystick control, false = hold position
+
   // Explicit constructor — only call after Wire.begin()
   AppContext(TwoWire& wire_imu, TwoWire& /*wire2 — reserved for future use*/)
       : imu(wire_imu),

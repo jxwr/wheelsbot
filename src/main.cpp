@@ -10,6 +10,13 @@ using namespace wheelsbot::hardware;
 using namespace wheelsbot::control;
 
 // ============================================================
+// Helper functions
+// ============================================================
+static inline float clamp(float x, float lo, float hi) {
+  return (x < lo) ? lo : ((x > hi) ? hi : x);
+}
+
+// ============================================================
 // Tasks — all receive AppContext* via pvParameter
 // ============================================================
 
@@ -62,7 +69,7 @@ static void imuTask(void* arg) {
   }
 }
 
-// balanceTask: 200Hz cascade control — Velocity → Angle
+// balanceTask: 200Hz cascade control — Position → Velocity → Angle + Yaw mixing
 static void balanceTask(void* arg) {
   auto* ctx = static_cast<AppContext*>(arg);
   const TickType_t period = pdMS_TO_TICKS(5);
@@ -71,9 +78,20 @@ static void balanceTask(void* arg) {
   ctx->cascade.reset();
   uint32_t lastUs = micros();
 
-  // Initial tuning: inner loop only for safety
+  // Controller tuning
   ctx->cascade.angleLoop().setGains(10.0f, 0.0f, 0.4f);
-  ctx->cascade.velocityLoop().setGains(0.01f, 0.0f, 0.0f);  // Minimal P-only for stability
+  ctx->cascade.velocityLoop().setGains(0.5f, 0.1f, 0.0f);  // PI for velocity holding
+  ctx->cascade.positionLoop().setGains(1.0f, 0.0f, 0.0f);  // P-only for position
+
+  // Navigation state
+  float position = 0.0f;      // Integrated linear position (m)
+  float heading = 0.0f;       // Integrated heading (rad)
+  float last_wL = 0.0f, last_wR = 0.0f;  // For trapezoidal integration
+
+  // Yaw control
+  constexpr float YAW_KP = 2.0f;           // Yaw rate P gain
+  constexpr float MAX_YAW_RATE = 3.0f;     // rad/s max rotation
+  constexpr float DIFF_RATIO = 0.3f;       // Max 30% differential
 
   while (true) {
     uint32_t nowUs = micros();
@@ -81,11 +99,52 @@ static void balanceTask(void* arg) {
     if (!(dt > 0.f && dt < 0.1f)) dt = 0.005f;
     lastUs = nowUs;
 
+    // Get sensor data
+    float wL = ctx->wheel_state.valid ? ctx->wheel_state.wL : 0.0f;
+    float wR = ctx->wheel_state.valid ? ctx->wheel_state.wR : 0.0f;
+    float wheel_vel = (wL + wR) * 0.5f;  // Average wheel velocity (rad/s)
+    float gyro_z = ctx->imu_state.valid ? ctx->imu_state.gz : 0.0f;  // Yaw rate
+
+    // Integrate position (trapezoidal for accuracy)
+    float linear_vel = wheel_vel * WHEEL_RADIUS_M;  // m/s
+    position += linear_vel * dt;
+
+    // Integrate heading
+    heading += gyro_z * dt;
+    // Normalize heading to [-pi, pi]
+    while (heading > M_PI) heading -= 2 * M_PI;
+    while (heading < -M_PI) heading += 2 * M_PI;
+
+    // Update shared state for telemetry
+    ctx->position_x = position;
+    ctx->heading = heading;
+
+    // Determine target based on mode
+    float target_pos = ctx->target_position;
+    float target_yaw_rate = ctx->target_heading_rate;
+
+    if (!ctx->remote_mode) {
+      // Hold position mode: target stays at current position when first enabled
+      static bool was_remote = true;
+      if (was_remote) {
+        ctx->target_position = position;
+        target_pos = position;
+      }
+      was_remote = false;
+      target_yaw_rate = 0.0f;  // No rotation in hold mode
+    } else {
+      // Remote mode: target position integrates from joystick input
+      // The joystick sets a "virtual target" that moves
+      ctx->target_position += ctx->target_heading_rate * dt * 0.1f;  // Scale factor
+      target_pos = ctx->target_position;
+    }
+
     // Prepare cascade input
     CascadeInput cin;
-    cin.velocity_reference = 0.0f;
-    cin.velocity_measurement = ctx->wheel_state.valid
-        ? (ctx->wheel_state.wL + ctx->wheel_state.wR) * 0.5f : 0.0f;
+    cin.position_reference = target_pos;
+    cin.position_measurement = position;
+    cin.velocity_reference = 0.0f;  // Position loop will override
+    cin.velocity_measurement = wheel_vel;
     cin.pitch_measurement = ctx->imu_state.valid
         ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;
     cin.pitch_rate = ctx->imu_state.valid ? ctx->imu_state.gy : 0.0f;
@@ -98,15 +157,37 @@ static void balanceTask(void* arg) {
     ctx->cascade.step(cin, cout);
 
     if (cout.valid && ctx->cascade.isRunning()) {
-      ctx->bal_state.left_target  = cout.left_motor;
-      ctx->bal_state.right_target = cout.right_motor;
+      // Extract longitudinal command from cascade
+      float longitudinal_cmd = cout.left_motor;  // Same for both wheels
+
+      // Compute yaw command (differential)
+      float yaw_cmd = 0.0f;
+      if (fabsf(target_yaw_rate) > 0.05f) {  // Deadband
+        // Simple P control on yaw rate
+        float yaw_rate_error = target_yaw_rate - gyro_z;
+        yaw_cmd = YAW_KP * yaw_rate_error;
+        // Limit yaw command
+        yaw_cmd = clamp(yaw_cmd, -MAX_YAW_RATE, MAX_YAW_RATE);
+        // Scale by longitudinal to prevent tipping during rotation
+        float scale = fminf(1.0f, fabsf(longitudinal_cmd) / 2.0f + 0.3f);
+        yaw_cmd *= scale;
+      }
+
+      // Apply differential to get final wheel commands
+      float left_cmd = longitudinal_cmd + yaw_cmd * DIFF_RATIO;
+      float right_cmd = longitudinal_cmd - yaw_cmd * DIFF_RATIO;
+
+      ctx->bal_state.left_target = left_cmd;
+      ctx->bal_state.right_target = right_cmd;
       ctx->bal_state.ok = true;
     } else {
-      ctx->bal_state.left_target  = 0.0f;
+      ctx->bal_state.left_target = 0.0f;
       ctx->bal_state.right_target = 0.0f;
       ctx->bal_state.ok = false;
     }
 
+    last_wL = wL;
+    last_wR = wR;
     vTaskDelayUntil(&last, period);
   }
 }
