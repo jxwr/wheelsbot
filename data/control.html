@@ -208,6 +208,8 @@ function connect() {
     document.getElementById('conn-status').className = 'status ok';
 
     // Enable remote mode on connect
+    remoteMode = true;
+    document.getElementById('mode-val').textContent = '遥控';
     sendCommand('set_ctrl', 'remote_mode', 1);
   };
 
@@ -235,9 +237,9 @@ function connect() {
 }
 
 // Send command via WebSocket
-function sendCommand(cmd, key, value) {
+function sendCommand(type, key, value) {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ cmd, key, value }));
+    ws.send(JSON.stringify({ type, key, value }));
   }
 }
 
