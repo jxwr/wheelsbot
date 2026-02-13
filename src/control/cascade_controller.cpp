@@ -9,6 +9,7 @@ namespace control {
 CascadeController::CascadeController() { reset(); }
 
 void CascadeController::reset() {
+  position_.reset();
   velocity_.reset();
   angle_.reset();
   state_ = STATE_DISABLED;
@@ -36,11 +37,13 @@ void CascadeController::getDebug(CascadeDebug& out) const {
 }
 
 void CascadeController::getFrequencyStats(FrequencyStats& out) const {
-  out.outer_hz = measured_outer_hz_;
-  out.inner_hz = measured_inner_hz_;
+  out.position_hz = measured_position_hz_;
+  out.velocity_hz = measured_velocity_hz_;
+  out.angle_hz = measured_angle_hz_;
 }
 
 void CascadeController::getLimitStatus(LimitStatus& out) const {
+  out.position_saturated = position_saturated_;
   out.velocity_saturated = velocity_saturated_;
   out.angle_saturated = angle_saturated_;
   out.motor_saturated = motor_saturated_;
@@ -65,6 +68,10 @@ void CascadeController::setParams(const Params& p) {
   velocity_.setGains(p.velocity_kp, p.velocity_ki, 0.0f);
   velocity_.setMaxTiltCommand(p.velocity_max_tilt);
 
+  // Apply position loop parameters (PI only, no D)
+  position_.setGains(p.position_kp, p.position_ki, 0.0f);
+  position_.setMaxVelocity(p.position_max_vel);
+
   // Apply cascade-level parameters
   max_tilt_ = p.max_tilt;
   ramp_time_ = p.ramp_time;
@@ -85,6 +92,11 @@ void CascadeController::getParams(Params& p) const {
   p.velocity_ki = velocity_.pid().getKi();
   p.velocity_max_tilt = velocity_.getMaxTiltCommand();
 
+  // Get position loop parameters
+  p.position_kp = position_.pid().getKp();
+  p.position_ki = position_.pid().getKi();
+  p.position_max_vel = position_.getMaxVelocity();
+
   // Get cascade-level parameters
   p.max_tilt = max_tilt_;
   p.ramp_time = ramp_time_;
@@ -96,10 +108,14 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
   out.left_motor = 0.0f;
   out.right_motor = 0.0f;
   out.pitch_cmd = 0.0f;
+  out.velocity_cmd = 0.0f;
   out.valid = false;
   out.fault_flags = CASCADE_FAULT_NONE;
 
   // Clear debug output defaults
+  debug_.position_error = 0.0f;
+  debug_.position_integrator = 0.0f;
+  debug_.velocity_cmd = 0.0f;
   debug_.velocity_error = 0.0f;
   debug_.velocity_integrator = 0.0f;
   debug_.pitch_error = 0.0f;
@@ -110,7 +126,7 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
   debug_.enable_gain = enable_gain_;
   debug_.fault_flags = fault_flags_;
   debug_.running = false;
-  debug_.pitch = in.pitch_measurement;  // Record current pitch for telemetry
+  debug_.pitch = in.pitch_measurement;
 
   // Validate dt
   if (!(in.dt > 0.0f && in.dt < 0.1f)) {
@@ -119,7 +135,7 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
     out.fault_flags = fault_flags_;
     debug_.fault_flags = fault_flags_;
     was_enabled_ = false;
-    return true;  // Handled (fault state)
+    return true;
   }
 
   // Check disabled
@@ -136,9 +152,9 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
 
   // ==== RAMP-IN: Check rising edge BEFORE any control computation ====
   if (in.enabled && !was_enabled_) {
-    // Rising edge - reset everything for clean start
     enable_time_ = 0.0f;
     enable_gain_ = 0.0f;
+    position_.reset();
     velocity_.reset();
     angle_.reset();
     sensor_bad_time_ = 0.0f;
@@ -169,7 +185,7 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
     return true;
   }
 
-  // ==== SAFETY: Tilt protection - BEFORE control computation ====
+  // ==== SAFETY: Tilt protection ====
   if (fabsf(in.pitch_measurement) > max_tilt_) {
     state_ = STATE_FAULT;
     fault_flags_ |= CASCADE_FAULT_TILT_TOO_LARGE;
@@ -180,40 +196,71 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
   }
 
   // ==== FREQUENCY TRACKING ====
-  inner_step_count_++;
+  angle_step_count_++;
   uint32_t now_ms = in.timestamp_ms;
   if (last_time_ms_ == 0) last_time_ms_ = now_ms;
   uint32_t elapsed_ms = now_ms - last_time_ms_;
-  if (elapsed_ms >= 1000) {  // Update every second
-    measured_inner_hz_ = inner_step_count_ * 1000.0f / elapsed_ms;
-    measured_outer_hz_ = outer_step_count_ * 1000.0f / elapsed_ms;
-    inner_step_count_ = 0;
-    outer_step_count_ = 0;
+  if (elapsed_ms >= 1000) {
+    measured_angle_hz_ = angle_step_count_ * 1000.0f / elapsed_ms;
+    measured_velocity_hz_ = velocity_step_count_ * 1000.0f / elapsed_ms;
+    measured_position_hz_ = position_step_count_ * 1000.0f / elapsed_ms;
+    angle_step_count_ = 0;
+    velocity_step_count_ = 0;
+    position_step_count_ = 0;
     last_time_ms_ = now_ms;
   }
 
-  // ==== OUTER LOOP: Velocity → Pitch Command (decimated) ====
+  // ==== OUTERMOST LOOP: Position -> Velocity Command (decimated) ====
   step_counter_++;
-  bool run_outer = (step_counter_ % outer_decimation_) == 0;
+  bool run_position = (step_counter_ % position_decimation_) == 0;
+
+  float velocity_reference;
+  if (run_position) {
+    position_step_count_++;
+
+    ControlInput pos_in;
+    pos_in.reference = in.position_reference;
+    pos_in.measurement = in.position_measurement;
+    pos_in.measurement_rate = 0.0f;
+    pos_in.dt = in.dt * position_decimation_;
+
+    ControlOutput pos_out;
+    bool pos_ok = position_.step(pos_in, pos_out);
+
+    float max_vel = position_.getMaxVelocity();
+    position_saturated_ = fabsf(pos_out.control) >= max_vel * 0.99f;
+
+    debug_.position_error = pos_in.reference - pos_in.measurement;
+    debug_.position_integrator = position_.pid().getIntegral();
+
+    if (!pos_ok) {
+      pos_out.control = 0.0f;
+    }
+
+    last_velocity_cmd_ = pos_out.control;
+  }
+  velocity_reference = last_velocity_cmd_;
+  debug_.velocity_cmd = velocity_reference;
+
+  // ==== OUTER LOOP: Velocity -> Pitch Command (decimated) ====
+  bool run_velocity = (step_counter_ % velocity_decimation_) == 0;
 
   float pitch_reference;
-  if (run_outer) {
-    outer_step_count_++;
+  if (run_velocity) {
+    velocity_step_count_++;
 
     ControlInput vel_in;
-    vel_in.reference = in.velocity_reference;
+    vel_in.reference = velocity_reference;
     vel_in.measurement = in.velocity_measurement;
-    vel_in.measurement_rate = 0.0f;  // No direct acceleration measurement
-    vel_in.dt = in.dt * outer_decimation_;  // Scale dt for outer loop
+    vel_in.measurement_rate = 0.0f;
+    vel_in.dt = in.dt * velocity_decimation_;
 
     ControlOutput vel_out;
     bool vel_ok = velocity_.step(vel_in, vel_out);
 
-    // Check if velocity loop saturated
     float max_tilt_cmd = velocity_.getMaxTiltCommand();
     velocity_saturated_ = fabsf(vel_out.control) >= max_tilt_cmd * 0.99f;
 
-    // Debug: capture velocity loop state
     debug_.velocity_error = vel_in.reference - vel_in.measurement;
     debug_.velocity_integrator = velocity_.pid().getIntegral();
 
@@ -221,27 +268,24 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
       vel_out.control = 0.0f;
     }
 
-    // The velocity output is the pitch command (tilt to achieve velocity)
     last_pitch_cmd_ = vel_out.control + pitch_offset_;
   }
   pitch_reference = last_pitch_cmd_;
   debug_.pitch_cmd = pitch_reference;
 
-  // ==== INNER LOOP: Angle → Motor Command (runs every cycle) ====
+  // ==== INNER LOOP: Angle -> Motor Command (runs every cycle) ====
   ControlInput ang_in;
   ang_in.reference = pitch_reference;
   ang_in.measurement = in.pitch_measurement;
-  ang_in.measurement_rate = in.pitch_rate;  // Use gyro rate for D-term
+  ang_in.measurement_rate = in.pitch_rate;
   ang_in.dt = in.dt;
 
   ControlOutput ang_out;
   bool ang_ok = angle_.step(ang_in, ang_out);
 
-  // Check if angle loop saturated
   float angle_out_max = angle_.pid().getOutputMax();
   angle_saturated_ = fabsf(ang_out.control) >= angle_out_max * 0.99f;
 
-  // Debug: capture angle loop state
   debug_.pitch_error = ang_in.reference - ang_in.measurement;
   debug_.pitch_integrator = angle_.pid().getIntegral();
   debug_.pitch_rate_used = in.pitch_rate;
@@ -257,8 +301,7 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
   // Apply ramp to output
   float motor_cmd = ang_out.control * enable_gain_;
 
-  // Check if motor output saturated (at voltage limit)
-  float motor_limit = angle_out_max;  // Same as angle loop limit
+  float motor_limit = angle_out_max;
   motor_saturated_ = fabsf(motor_cmd) >= motor_limit * 0.99f;
 
   debug_.motor_output = motor_cmd;
@@ -270,7 +313,6 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
       runtime_stats_.fault_count_total++;
     }
   }
-  // Track min/max pitch
   if (in.pitch_measurement > runtime_stats_.max_pitch_ever) {
     runtime_stats_.max_pitch_ever = in.pitch_measurement;
   }
@@ -280,8 +322,9 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
 
   // ==== OUTPUT ====
   out.left_motor = motor_cmd;
-  out.right_motor = motor_cmd;  // Same command both sides (differential added elsewhere)
+  out.right_motor = motor_cmd;
   out.pitch_cmd = pitch_reference;
+  out.velocity_cmd = velocity_reference;
   out.valid = true;
   out.fault_flags = 0;
 

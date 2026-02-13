@@ -3,18 +3,20 @@
 #include "control_loop_interface.h"
 #include "angle_controller.h"
 #include "velocity_controller.h"
+#include "position_controller.h"
 
 namespace wheelsbot {
 namespace control {
 
 // ============================================================
 // Cascade Controller
-// Composes outer + inner loops: Velocity → Angle
+// Composes three loops: Position → Velocity → Angle
 //
 // Execution order:
-//   1. Outer loop (velocity) generates pitch reference
-//   2. Inner loop (angle) tracks pitch reference
-//   3. Output is motor command
+//   1. Outermost loop (position) generates velocity reference
+//   2. Outer loop (velocity) generates pitch reference
+//   3. Inner loop (angle) tracks pitch reference
+//   4. Output is motor command
 //
 // Safety checks performed at cascade level:
 //   - Tilt protection (max physical tilt)
@@ -23,6 +25,10 @@ namespace control {
 // ============================================================
 
 struct CascadeInput {
+  // Position loop inputs
+  float position_reference;   // Target position (m)
+  float position_measurement; // Current position (m)
+
   // Velocity loop inputs
   float velocity_reference;   // Target wheel velocity (rad/s)
   float velocity_measurement; // Current wheel velocity (rad/s)
@@ -42,6 +48,7 @@ struct CascadeOutput {
   float left_motor;   // Left motor command (voltage/torque)
   float right_motor;  // Right motor command
   float pitch_cmd;    // Commanded pitch (debug)
+  float velocity_cmd; // Commanded velocity (debug)
   bool valid;         // Output valid
   uint32_t fault_flags;
 };
@@ -58,6 +65,11 @@ enum CascadeFault {
 // Debug structure for telemetry and tuning
 // ============================================================
 struct CascadeDebug {
+  // Outermost loop (position) state
+  float position_error;      // Position tracking error (m)
+  float position_integrator; // Position PID integrator
+  float velocity_cmd;        // Output: commanded velocity (m/s)
+
   // Outer loop (velocity) state
   float velocity_error;      // Velocity tracking error (rad/s)
   float velocity_integrator; // Velocity PID integrator
@@ -82,14 +94,16 @@ struct CascadeDebug {
 // Frequency statistics for monitoring loop execution
 // ============================================================
 struct FrequencyStats {
-  float outer_hz = 0.0f;     // Outer loop actual frequency
-  float inner_hz = 0.0f;     // Inner loop actual frequency
+  float position_hz = 0.0f;  // Position loop actual frequency
+  float velocity_hz = 0.0f;  // Velocity loop actual frequency (renamed from outer_hz)
+  float angle_hz = 0.0f;     // Angle loop actual frequency (renamed from inner_hz)
 };
 
 // ============================================================
 // Limit status for detecting saturation
 // ============================================================
 struct LimitStatus {
+  bool position_saturated = false;  // Position loop output at limit
   bool velocity_saturated = false;  // Velocity loop output at limit
   bool angle_saturated = false;     // Angle loop output at limit
   bool motor_saturated = false;     // Final motor command at limit
@@ -116,6 +130,7 @@ class CascadeController {
   void reset();
 
   // Access individual controllers for tuning
+  PositionController& positionLoop() { return position_; }
   VelocityController& velocityLoop() { return velocity_; }
   AngleController& angleLoop() { return angle_; }
 
@@ -139,13 +154,23 @@ class CascadeController {
 
   // Parameters for serialization (persist to flash)
   struct Params {
+    // Angle loop parameters
     float angle_kp = 6.0f, angle_ki = 0.0f, angle_kd = 0.6f;
     float angle_d_alpha = 0.7f;
     float angle_max_out = 6.0f;
     float angle_integrator_limit = 2.0f;
-    float velocity_kp = 0.0f;  // Outer loop P gain
-    float velocity_ki = 0.0f;  // Outer loop I gain (NEW)
-    float velocity_max_tilt = 0.14f;  // ~8 degrees (reduced from 17°)
+
+    // Velocity loop parameters
+    float velocity_kp = 0.0f;
+    float velocity_ki = 0.0f;
+    float velocity_max_tilt = 0.14f;  // ~8 degrees
+
+    // Position loop parameters (NEW)
+    float position_kp = 1.0f;
+    float position_ki = 0.0f;
+    float position_max_vel = 0.5f;    // m/s
+
+    // Cascade-level parameters
     float max_tilt = 35.0f * (3.14159f / 180.0f);  // Safety limit
     float ramp_time = 0.5f;
     float pitch_offset = 0.0f;
@@ -155,13 +180,16 @@ class CascadeController {
   void getParams(Params& p) const;
   // Persistence handled at application layer (wifi_debug.cpp)
 
-  // Outer loop decimation configuration (inner / outer frequency ratio)
-  void setOuterLoopDecimation(uint32_t ratio) { outer_decimation_ = ratio; }
-  uint32_t getOuterLoopDecimation() const { return outer_decimation_; }
+  // Decimation configuration (inner / outer frequency ratio)
+  void setPositionDecimation(uint32_t ratio) { position_decimation_ = ratio; }
+  void setVelocityDecimation(uint32_t ratio) { velocity_decimation_ = ratio; }
+  uint32_t getPositionDecimation() const { return position_decimation_; }
+  uint32_t getVelocityDecimation() const { return velocity_decimation_; }
 
  private:
-  VelocityController velocity_;
-  AngleController angle_;
+  PositionController position_;  // Outermost loop (NEW)
+  VelocityController velocity_;  // Outer loop
+  AngleController angle_;        // Inner loop
 
   // Safety/state
   enum State { STATE_DISABLED, STATE_RUNNING, STATE_FAULT };
@@ -185,19 +213,24 @@ class CascadeController {
   // Debug state (updated each step)
   mutable CascadeDebug debug_;  // mutable to allow updates in const getDebug()
 
-  // Outer loop decimation (frequency separation)
-  uint32_t outer_decimation_ = 4;  // 4:1 ratio = 50Hz outer / 200Hz inner
+  // Decimation (frequency separation)
+  uint32_t position_decimation_ = 20;  // 20:1 = 10Hz position / 200Hz angle
+  uint32_t velocity_decimation_ = 4;   // 4:1 = 50Hz velocity / 200Hz angle
   uint32_t step_counter_ = 0;
-  float last_pitch_cmd_ = 0.0f;    // Last outer loop output (held for inner loop)
+  float last_velocity_cmd_ = 0.0f;     // Last position loop output
+  float last_pitch_cmd_ = 0.0f;        // Last velocity loop output
 
   // Frequency tracking
   mutable uint32_t last_time_ms_ = 0;
-  mutable uint32_t inner_step_count_ = 0;
-  mutable uint32_t outer_step_count_ = 0;
-  mutable float measured_outer_hz_ = 0.0f;
-  mutable float measured_inner_hz_ = 0.0f;
+  mutable uint32_t angle_step_count_ = 0;
+  mutable uint32_t velocity_step_count_ = 0;
+  mutable uint32_t position_step_count_ = 0;
+  mutable float measured_position_hz_ = 0.0f;
+  mutable float measured_velocity_hz_ = 0.0f;
+  mutable float measured_angle_hz_ = 0.0f;
 
   // Limit status tracking
+  mutable bool position_saturated_ = false;
   mutable bool velocity_saturated_ = false;
   mutable bool angle_saturated_ = false;
   mutable bool motor_saturated_ = false;

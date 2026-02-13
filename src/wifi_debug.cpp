@@ -140,7 +140,7 @@ static void sendTelemetry() {
     dbg.velocity_error + (s_ctx->wheel_state.valid ? (s_ctx->wheel_state.wL + s_ctx->wheel_state.wR) * 0.5f : 0.0f) - dbg.velocity_error,
     dbg.velocity_error, dbg.velocity_integrator, dbg.pitch_cmd,
     dbg.pitch_error, dbg.pitch_integrator, dbg.motor_output,
-    freq.outer_hz, freq.inner_hz, saturated,
+    freq.position_hz, freq.velocity_hz, saturated,
     dbg.running ? 1 : 0, (unsigned)dbg.fault_flags, dbg.enable_gain,
     runtime.total_runtime_sec, runtime.fault_count_total, runtime.max_pitch_ever);
 
