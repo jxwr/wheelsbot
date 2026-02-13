@@ -453,13 +453,11 @@ function goHome() {
   window.location.href = '/';
 }
 
-// Joystick setup
+// Joystick setup with multi-touch support
 function setupJoystick(element, state, isLeft) {
   const knob = element.querySelector('.joystick-knob');
-  const rect = element.getBoundingClientRect();
-  const centerX = rect.width / 2;
-  const centerY = rect.height / 2;
-  const maxDist = centerX - 25; // knob radius
+  const maxDist = 45; // knob radius in px
+  let touchId = null;
 
   function updateKnob() {
     const x = state.x * maxDist;
@@ -467,8 +465,35 @@ function setupJoystick(element, state, isLeft) {
     knob.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
   }
 
+  function getTouch(e) {
+    if (!e.touches) return null;
+    // Find touch by ID if we have one, otherwise find touch on this element
+    if (touchId !== null) {
+      for (let i = 0; i < e.touches.length; i++) {
+        if (e.touches[i].identifier === touchId) {
+          return e.touches[i];
+        }
+      }
+      return null;
+    }
+    // First touch on this element
+    const rect = element.getBoundingClientRect();
+    for (let i = 0; i < e.touches.length; i++) {
+      const t = e.touches[i];
+      if (t.clientX >= rect.left && t.clientX <= rect.right &&
+          t.clientY >= rect.top && t.clientY <= rect.bottom) {
+        return t;
+      }
+    }
+    return null;
+  }
+
   function handleStart(e) {
     e.preventDefault();
+    const touch = e.changedTouches ? e.changedTouches[0] : null;
+    if (touch) {
+      touchId = touch.identifier;
+    }
     state.active = true;
     element.classList.add('active');
     handleMove(e);
@@ -476,20 +501,30 @@ function setupJoystick(element, state, isLeft) {
 
   function handleMove(e) {
     if (!state.active) return;
+
+    let clientX, clientY;
+    if (e.touches) {
+      const touch = getTouch(e);
+      if (!touch) return; // Our touch not in this event
+      clientX = touch.clientX;
+      clientY = touch.clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
     e.preventDefault();
 
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const rect = element.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
 
     const dx = clientX - rect.left - centerX;
     const dy = clientY - rect.top - centerY;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const maxDistPx = maxDist;
 
-    if (dist > maxDistPx) {
-      state.x = dx / dist * (maxDistPx / centerX);
-      state.y = dy / dist * (maxDistPx / centerY);
+    if (dist > maxDist) {
+      state.x = dx / dist * (maxDist / centerX);
+      state.y = dy / dist * (maxDist / centerY);
     } else {
       state.x = dx / centerX;
       state.y = dy / centerY;
@@ -500,7 +535,22 @@ function setupJoystick(element, state, isLeft) {
   }
 
   function handleEnd(e) {
+    if (!state.active) return;
+
+    // Check if our touch ended
+    if (e.changedTouches && touchId !== null) {
+      let found = false;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === touchId) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) return; // Not our touch
+    }
+
     e.preventDefault();
+    touchId = null;
     state.active = false;
     state.x = 0;
     state.y = 0;
@@ -517,6 +567,7 @@ function setupJoystick(element, state, isLeft) {
 
   document.addEventListener('mouseup', handleEnd);
   document.addEventListener('touchend', handleEnd);
+  document.addEventListener('touchcancel', handleEnd);
 }
 
 // Send joystick commands to robot
