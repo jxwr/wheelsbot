@@ -303,13 +303,31 @@ const chartData = { pitch: [], motor: [] };
 const maxPoints = 200; // 10 seconds at 20Hz
 
 function resizeChart() {
-  chartCanvas.width = chartCanvas.clientWidth;
-  chartCanvas.height = chartCanvas.clientHeight;
+  const rect = chartCanvas.getBoundingClientRect();
+  chartCanvas.width = rect.width || chartCanvas.clientWidth || 300;
+  chartCanvas.height = rect.height || chartCanvas.clientHeight || 120;
+  console.log('Chart resized:', chartCanvas.width, 'x', chartCanvas.height);
 }
 resizeChart();
+setTimeout(resizeChart, 100); // Retry after layout
 new ResizeObserver(resizeChart).observe(chartCanvas);
 
+// Initial empty draw to verify canvas works
+chartCtx.fillStyle = '#0d1117';
+chartCtx.fillRect(0, 0, chartCanvas.width, chartCanvas.height);
+chartCtx.strokeStyle = '#30363d';
+chartCtx.setLineDash([5, 5]);
+chartCtx.beginPath();
+chartCtx.moveTo(0, chartCanvas.height/2);
+chartCtx.lineTo(chartCanvas.width, chartCanvas.height/2);
+chartCtx.stroke();
+chartCtx.setLineDash([]);
+console.log('Chart initialized');
+
 window._updateChart = function(pitchDeg, motorV) {
+  // Validate inputs
+  if (!isFinite(pitchDeg) || !isFinite(motorV)) return;
+
   chartData.pitch.push(pitchDeg);
   chartData.motor.push(motorV);
   if (chartData.pitch.length > maxPoints) {
@@ -318,6 +336,8 @@ window._updateChart = function(pitchDeg, motorV) {
   }
 
   const w = chartCanvas.width, h = chartCanvas.height;
+  if (w === 0 || h === 0) return; // Canvas not ready
+
   chartCtx.fillStyle = '#0d1117';
   chartCtx.fillRect(0, 0, w, h);
 
@@ -471,8 +491,10 @@ function handleTelem(d) {
   }
 
   // Update chart
-  if (window._updateChart) {
+  if (window._updateChart && d.pitch_deg != null && d.motor != null) {
     window._updateChart(d.pitch_deg, d.motor);
+  } else {
+    console.log('Chart skip:', { hasFn: !!window._updateChart, pitch_deg: d.pitch_deg, motor: d.motor });
   }
 }
 
