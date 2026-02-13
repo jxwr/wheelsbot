@@ -83,6 +83,36 @@ body {
   text-align: center;
   white-space: nowrap;
 }
+.params {
+  background: #161b22;
+  padding: 12px 16px;
+  border-top: 1px solid #30363d;
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  align-items: center;
+  font-size: 12px;
+}
+.param-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.param-item label {
+  color: #8b949e;
+}
+.param-item input {
+  width: 60px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.param-item span {
+  color: #484f58;
+}
 .controls {
   background: #161b22;
   padding: 16px;
@@ -173,6 +203,19 @@ body {
   <div class="joystick" id="right-joystick">
     <div class="joystick-knob"></div>
     <div class="joystick-label">左转/右转</div>
+  </div>
+</div>
+
+<div class="params">
+  <div class="param-item">
+    <label>最大速度</label>
+    <input type="number" id="max-linear-vel" value="0.5" min="0.1" max="2.0" step="0.1">
+    <span>m/s</span>
+  </div>
+  <div class="param-item">
+    <label>最大转速</label>
+    <input type="number" id="max-yaw-rate" value="3.0" min="0.5" max="6.0" step="0.5">
+    <span>rad/s</span>
   </div>
 </div>
 
@@ -344,6 +387,9 @@ function setupJoystick(element, state, isLeft) {
 
 // Send joystick commands to robot
 let lastCmdTime = 0;
+let maxLinearVel = 0.5;  // m/s
+let maxYawRate = 3.0;    // rad/s
+
 function sendJoystickCommands() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
@@ -354,18 +400,33 @@ function sendJoystickCommands() {
 
   if (eStopped) return;
 
-  // Left joystick Y: target position rate (forward/back)
+  // Left joystick Y: target linear velocity (forward/back)
   // Invert Y because screen Y is down
-  const linearCmd = -leftJoy.y * 0.5;  // 0.5 m/s max
+  const linearCmd = -leftJoy.y * maxLinearVel;
 
   // Right joystick X: target yaw rate (rotation)
-  const yawCmd = rightJoy.x * 3.0;  // 3 rad/s max
+  const yawCmd = rightJoy.x * maxYawRate;
 
   // Send commands
-  // Linear velocity sets position target rate
   sendCommand('set_target', 'linear_vel', linearCmd);
   sendCommand('set_target', 'yaw_rate', yawCmd);
 }
+
+// Update max velocities from input fields
+function updateMaxVelocities() {
+  const linearEl = document.getElementById('max-linear-vel');
+  const yawEl = document.getElementById('max-yaw-rate');
+  if (linearEl) maxLinearVel = parseFloat(linearEl.value) || 0.5;
+  if (yawEl) maxYawRate = parseFloat(yawEl.value) || 3.0;
+}
+
+// Add event listeners for parameter inputs
+document.addEventListener('DOMContentLoaded', function() {
+  const linearEl = document.getElementById('max-linear-vel');
+  const yawEl = document.getElementById('max-yaw-rate');
+  if (linearEl) linearEl.addEventListener('change', updateMaxVelocities);
+  if (yawEl) yawEl.addEventListener('change', updateMaxVelocities);
+});
 
 // Initialize
 connect();
