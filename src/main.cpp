@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <SimpleFOC.h>
+#include <ArduinoOTA.h>
 
 #include "pins.h"
 #include "app_context.h"
@@ -426,6 +427,30 @@ void setup() {
   // WiFi + WebSocket debug (initializes LittleFS first)
   wifi_debug_init(ctx);
 
+  // Initialize ArduinoOTA for wireless firmware updates
+  ArduinoOTA.setHostname("balancebot");
+  ArduinoOTA.setPassword("balancebot");
+  ArduinoOTA.onStart([]() {
+    String type = ArduinoOTA.getCommand() == U_FLASH ? "sketch" : "filesystem";
+    Serial.println("OTA Update Start: " + type);
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nOTA Update Complete");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("OTA Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("OTA Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+  ArduinoOTA.begin();
+  Serial.println("OTA Ready - IP: " + WiFi.softAPIP().toString());
+
   // Load cascade controller parameters from flash (if exists)
   CascadeController::Params params;
   if (loadCascadeParams(params)) {
@@ -448,5 +473,7 @@ void setup() {
 }
 
 void loop() {
-  vTaskDelay(pdMS_TO_TICKS(1000));
+  // Handle OTA updates
+  ArduinoOTA.handle();
+  vTaskDelay(pdMS_TO_TICKS(100));
 }
