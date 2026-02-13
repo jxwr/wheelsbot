@@ -24,6 +24,11 @@ namespace control {
 //   - Output ramp-in
 // ============================================================
 
+enum class ControlMode {
+    POSITION_MODE,   // Use position loop (hold position)
+    VELOCITY_MODE    // Bypass position loop, use direct velocity command (remote control)
+};
+
 struct CascadeInput {
   // Position loop inputs
   float position_reference;   // Target position (m)
@@ -36,6 +41,9 @@ struct CascadeInput {
   // Angle loop inputs
   float pitch_measurement;    // Current pitch angle (rad)
   float pitch_rate;           // Pitch angular velocity (rad/s) - optional
+
+  // Control mode
+  ControlMode mode = ControlMode::POSITION_MODE;  // Default: hold position
 
   // Metadata
   float dt;

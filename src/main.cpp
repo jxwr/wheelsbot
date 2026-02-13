@@ -145,6 +145,7 @@ static void balanceTask(void* arg) {
     cin.position_reference = position_reference;
     cin.position_measurement = position;
     cin.velocity_reference = velocity_reference;  // Non-zero in remote mode bypasses position loop
+    cin.mode = ctx->remote_mode ? ControlMode::VELOCITY_MODE : ControlMode::POSITION_MODE;
     cin.velocity_measurement = wheel_vel;
     cin.pitch_measurement = ctx->imu_state.valid
         ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;

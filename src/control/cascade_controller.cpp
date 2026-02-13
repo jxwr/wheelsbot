@@ -215,37 +215,43 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
   bool run_position = (step_counter_ % position_decimation_) == 0;
 
   float velocity_reference;
-  // If external velocity reference is provided (non-zero), use it directly (remote control mode)
-  // Otherwise, use position loop output (autonomous position holding mode)
-  if (fabsf(in.velocity_reference) > 0.001f) {
+
+  if (in.mode == ControlMode::VELOCITY_MODE) {
+    // Remote control mode: use direct velocity command, bypass position loop
     velocity_reference = in.velocity_reference;
     debug_.position_error = 0.0f;
     debug_.position_integrator = 0.0f;
-  } else if (run_position) {
-    position_step_count_++;
 
-    ControlInput pos_in;
-    pos_in.reference = in.position_reference;
-    pos_in.measurement = in.position_measurement;
-    pos_in.measurement_rate = 0.0f;
-    pos_in.dt = in.dt * position_decimation_;
-
-    ControlOutput pos_out;
-    bool pos_ok = position_.step(pos_in, pos_out);
-
-    float max_vel = position_.getMaxVelocity();
-    position_saturated_ = fabsf(pos_out.control) >= max_vel * 0.99f;
-
-    debug_.position_error = pos_in.reference - pos_in.measurement;
-    debug_.position_integrator = position_.pid().getIntegral();
-
-    if (!pos_ok) {
-      pos_out.control = 0.0f;
+    // Reset position loop to prevent integral windup
+    if (run_position) {
+      position_.reset();
     }
-
-    last_velocity_cmd_ = pos_out.control;
-    velocity_reference = last_velocity_cmd_;
   } else {
+    // Position hold mode: run position loop to maintain position
+    if (run_position) {
+      position_step_count_++;
+
+      ControlInput pos_in;
+      pos_in.reference = in.position_reference;
+      pos_in.measurement = in.position_measurement;
+      pos_in.measurement_rate = 0.0f;
+      pos_in.dt = in.dt * position_decimation_;
+
+      ControlOutput pos_out;
+      bool pos_ok = position_.step(pos_in, pos_out);
+
+      float max_vel = position_.getMaxVelocity();
+      position_saturated_ = fabsf(pos_out.control) >= max_vel * 0.99f;
+
+      debug_.position_error = pos_in.reference - pos_in.measurement;
+      debug_.position_integrator = position_.pid().getIntegral();
+
+      if (!pos_ok) {
+        pos_out.control = 0.0f;
+      }
+
+      last_velocity_cmd_ = pos_out.control;
+    }
     velocity_reference = last_velocity_cmd_;
   }
   debug_.velocity_cmd = velocity_reference;
