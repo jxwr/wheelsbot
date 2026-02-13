@@ -437,6 +437,49 @@ void wifi_debug_init(AppContext& ctx) {
     request->send(LittleFS, "/control.html", "text/html");
   });
 
+  // File upload endpoint for updating data files OTA
+  server.on("/upload", HTTP_POST, [](AsyncWebServerRequest* request) {
+    request->send(200, "text/plain", "Upload OK");
+  }, [](AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
+    static File fsUploadFile;
+    if (!index) {
+      // Start of upload
+      Serial.printf("Upload Start: %s\n", filename.c_str());
+      // Remove existing file
+      if (LittleFS.exists(filename)) {
+        LittleFS.remove(filename);
+      }
+      fsUploadFile = LittleFS.open(filename, "w");
+    }
+    if (fsUploadFile) {
+      fsUploadFile.write(data, len);
+    }
+    if (final) {
+      if (fsUploadFile) {
+        fsUploadFile.close();
+        Serial.printf("Upload Complete: %s, %u bytes\n", filename.c_str(), index + len);
+      }
+    }
+  });
+
+  // Simple upload form page
+  server.on("/upload", HTTP_GET, [](AsyncWebServerRequest* request) {
+    const char* html = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Upload</title></head>
+<body>
+<h2>Upload File to LittleFS</h2>
+<form method="POST" enctype="multipart/form-data">
+<input type="file" name="file"><br><br>
+<input type="submit" value="Upload">
+</form>
+</body>
+</html>
+)rawliteral";
+    request->send(200, "text/html", html);
+  });
+
   server.begin();
   Serial.println("HTTP + WebSocket server started");
   Serial.println("Main page: http://192.168.4.1/");
