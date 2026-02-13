@@ -120,30 +120,31 @@ static void balanceTask(void* arg) {
     ctx->heading = heading;
 
     // Determine target based on mode
-    float target_pos = ctx->target_position;
-    float target_yaw_rate = ctx->target_heading_rate;
+    float position_reference = position;  // Default: hold current position
+    float velocity_reference = 0.0f;      // Default: no velocity command
+    float target_yaw_rate = ctx->target_yaw_rate;
 
+    static bool was_remote = true;
     if (!ctx->remote_mode) {
-      // Hold position mode: target stays at current position when first enabled
-      static bool was_remote = true;
+      // Hold position mode: use position loop to maintain position
       if (was_remote) {
         ctx->target_position = position;
-        target_pos = position;
       }
       was_remote = false;
+      position_reference = ctx->target_position;
       target_yaw_rate = 0.0f;  // No rotation in hold mode
     } else {
-      // Remote mode: target position integrates from joystick input
-      // The joystick sets a "virtual target" that moves
-      ctx->target_position += ctx->target_heading_rate * dt * 0.1f;  // Scale factor
-      target_pos = ctx->target_position;
+      // Remote mode: bypass position loop, directly control velocity
+      was_remote = true;
+      position_reference = position;  // Keep position reference at current (no position error)
+      velocity_reference = ctx->target_linear_vel;  // Direct velocity command from joystick
     }
 
     // Prepare cascade input
     CascadeInput cin;
-    cin.position_reference = target_pos;
+    cin.position_reference = position_reference;
     cin.position_measurement = position;
-    cin.velocity_reference = 0.0f;  // Position loop will override
+    cin.velocity_reference = velocity_reference;  // Non-zero in remote mode bypasses position loop
     cin.velocity_measurement = wheel_vel;
     cin.pitch_measurement = ctx->imu_state.valid
         ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;

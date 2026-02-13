@@ -55,7 +55,8 @@ struct AppContext {
   volatile float position_x = 0.0f;      // Linear position (m)
   volatile float heading = 0.0f;         // Heading angle (rad)
   volatile float target_position = 0.0f; // Target position for position loop (m)
-  volatile float target_heading_rate = 0.0f; // Target yaw rate for differential drive (rad/s)
+  volatile float target_linear_vel = 0.0f; // Target linear velocity from joystick (m/s)
+  volatile float target_yaw_rate = 0.0f; // Target yaw rate for differential drive (rad/s)
   volatile bool remote_mode = false;     // true = joystick control, false = hold position
 
   // Explicit constructor — only call after Wire.begin()

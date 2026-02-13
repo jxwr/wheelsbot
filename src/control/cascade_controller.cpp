@@ -215,7 +215,13 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
   bool run_position = (step_counter_ % position_decimation_) == 0;
 
   float velocity_reference;
-  if (run_position) {
+  // If external velocity reference is provided (non-zero), use it directly (remote control mode)
+  // Otherwise, use position loop output (autonomous position holding mode)
+  if (fabsf(in.velocity_reference) > 0.001f) {
+    velocity_reference = in.velocity_reference;
+    debug_.position_error = 0.0f;
+    debug_.position_integrator = 0.0f;
+  } else if (run_position) {
     position_step_count_++;
 
     ControlInput pos_in;
@@ -238,8 +244,10 @@ bool CascadeController::step(const CascadeInput& in, CascadeOutput& out) {
     }
 
     last_velocity_cmd_ = pos_out.control;
+    velocity_reference = last_velocity_cmd_;
+  } else {
+    velocity_reference = last_velocity_cmd_;
   }
-  velocity_reference = last_velocity_cmd_;
   debug_.velocity_cmd = velocity_reference;
 
   // ==== OUTER LOOP: Velocity -> Pitch Command (decimated) ====

@@ -328,11 +328,10 @@ static void handleSetTarget(const char* buf, AsyncWebSocketClient* client) {
   float val = parseValue(buf);
 
   if (strcmp(key, "linear_vel") == 0) {
-    // Linear velocity command: update target position rate
-    // For now, directly set as target heading rate for position loop
-    s_ctx->target_heading_rate = val;  // Reuse field for velocity command
+    // Linear velocity command for position/velocity control
+    s_ctx->target_linear_vel = val;
   } else if (strcmp(key, "yaw_rate") == 0) {
-    s_ctx->target_heading_rate = val;
+    s_ctx->target_yaw_rate = val;
   } else {
     // Legacy single-value target
     s_ctx->cmd_state.manual_target = val;
