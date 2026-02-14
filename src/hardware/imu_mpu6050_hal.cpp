@@ -142,9 +142,10 @@ bool MPU6050_HAL::read(ImuData& out) {
   out.gx = gx;
   out.gy = gy;
   out.gz = gz;
-  out.pitch = pitch_ * (180.0f / M_PI);  // Convert to degrees
-  out.roll = roll_ * (180.0f / M_PI);
-  out.yaw = yaw_ * (180.0f / M_PI);
+  // Convert to degrees (M_PI is available in Arduino, cast to float)
+  out.pitch = pitch_ * (180.0f / (float)M_PI);
+  out.roll = roll_ * (180.0f / (float)M_PI);
+  out.yaw = yaw_ * (180.0f / (float)M_PI);
   out.timestamp_us = now_us;
   out.valid = true;
 

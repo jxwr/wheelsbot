@@ -2,266 +2,378 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BalanceBot 调试控制台</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>BalanceBot</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,system-ui,sans-serif;background:#0d1117;color:#c9d1d9;font-size:13px}
-.top-bar{background:#161b22;padding:8px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #30363d;position:sticky;top:0;z-index:100}
-.top-bar h1{font-size:16px;font-weight:600;color:#58a6ff}
-.status{font-size:11px;padding:3px 10px;border-radius:12px;font-weight:600}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,system-ui,sans-serif;background:#0d1117;color:#c9d1d9;font-size:11px;overflow:hidden}
+a{color:#58a6ff;text-decoration:none}
+
+/* Top bar */
+.top{display:flex;align-items:center;gap:6px;padding:6px 8px;background:#161b22;border-bottom:1px solid #30363d;position:sticky;top:0;z-index:100}
+.top h1{font-size:13px;color:#58a6ff;font-weight:600}
+.status{font-size:9px;padding:2px 6px;border-radius:8px;font-weight:600}
 .status.ok{background:#238636;color:#fff}
 .status.err{background:#da3633;color:#fff}
-.container{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:8px;max-width:1600px;margin:0 auto}
-@media(max-width:1200px){.container{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:700px){.container{grid-template-columns:1fr}}
-.card{background:#161b22;border-radius:8px;padding:10px;border:1px solid #30363d}
-.card h2{font-size:12px;color:#58a6ff;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;gap:8px}
-.card h2 .hz{font-size:10px;color:#8b949e;text-transform:none}
-.row{display:flex;align-items:center;gap:6px;margin-bottom:5px;flex-wrap:wrap}
-.row label{flex:1;font-size:11px;color:#8b949e;min-width:0}
-.row label .en{color:#484f58;font-size:9px;display:block}
-.row input[type=number]{width:70px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:3px 6px;border-radius:4px;font-size:12px}
-.row input[type=number]:focus{outline:none;border-color:#58a6ff}
-.btn{padding:3px 10px;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600}
-.btn-send{background:#21262d;color:#c9d1d9;border:1px solid #30363d}.btn-send:hover{background:#30363d}
-.btn-on{background:#238636;color:#fff}.btn-on:hover{background:#2ea043}
-.btn-off{background:#da3633;color:#fff}.btn-off:hover{background:#f85149}
-.btn-save{background:#8957e5;color:#fff}.btn-save:hover{background:#a371f7}
-.telem-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-.telem-item{background:#0d1117;padding:4px 8px;border-radius:4px;font-size:11px;position:relative}
-.telem-item .lbl{color:#8b949e;display:block;font-size:9px}
-.telem-item .val{color:#3fb950;font-family:monospace;font-size:13px}
-.telem-item .unit{color:#484f58;font-size:9px;margin-left:2px}
-.telem-item.warn .val{color:#f0883e}
-.telem-item.alert .val{color:#f85149}
-.telem-item.sat{background:#3d1308}
-.telem-item.sat .val{color:#f85149}
-.state-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
-.state-0{background:#30363d;color:#8b949e}
-.state-1{background:#238636;color:#fff}
-.state-2{background:#da3633;color:#fff}
-#three-canvas{width:100%;height:180px;background:#0d1117;border-radius:4px}
-#chart-canvas{width:100%;height:120px;background:#0d1117;border-radius:4px;margin-top:8px}
-.switch{position:relative;display:inline-block;width:40px;height:22px;margin-left:auto}
-.switch input{opacity:0;width:0;height:0}
-.slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#30363d;border-radius:22px;transition:.3s}
-.slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#8b949e;border-radius:50%;transition:.3s}
-input:checked+.slider{background:#238636}
-input:checked+.slider:before{transform:translateX(18px);background:#fff}
-.limit-led{display:inline-block;width:8px;height:8px;border-radius:50%;background:#30363d;margin-left:4px}
-.limit-led.on{background:#f85149;box-shadow:0 0 4px #f85149}
-.stats-row{display:flex;gap:8px;margin-top:8px;font-size:10px;color:#8b949e}
-.stats-row span{background:#0d1117;padding:2px 8px;border-radius:4px}
-.chart-legend{display:flex;gap:12px;margin-top:4px;font-size:9px;color:#8b949e}
-.chart-legend span{display:flex;align-items:center;gap:4px}
-.chart-legend .color{width:12px;height:3px;border-radius:2px}
+.top .right{margin-left:auto;display:flex;gap:4px}
+.top .right a,.top .right span{padding:2px 8px;background:#21262d;border:1px solid #30363d;border-radius:4px;font-size:10px;color:#8b949e;cursor:pointer}
+
+/* Telemetry bar */
+.telem-bar{display:flex;gap:3px;padding:4px 6px;background:#161b22;border-bottom:1px solid #30363d;overflow-x:auto}
+.telem-box{flex:1;min-width:55px;background:#0d1117;padding:3px 5px;border-radius:3px;text-align:center}
+.telem-box .lbl{font-size:8px;color:#8b949e;display:block}
+.telem-box .val{font-size:11px;font-weight:600;font-family:monospace}
+.telem-box .val.green{color:#3fb950}
+.telem-box .val.yellow{color:#f0883e}
+.telem-box .val.red{color:#f85149}
+.telem-box .unit{font-size:8px;color:#484f58;margin-left:1px}
+
+/* Main content */
+.main{flex:1;overflow-y:auto;padding:6px;height:calc(100vh - 110px)}
+.page{display:none}
+.page.active{display:block}
+
+/* Bottom nav */
+.nav{display:flex;gap:2px;padding:4px;background:#161b22;border-top:1px solid #30363d}
+.nav button{flex:1;padding:8px;border:none;background:transparent;color:#8b949e;font-size:10px;font-weight:600;border-radius:4px;cursor:pointer}
+.nav button.active{background:#21262d;color:#58a6ff}
+
+/* 3D view */
+.view3d{background:#0d1117;border-radius:6px;padding:3px;border:1px solid #30363d;margin-bottom:6px}
+.view3d canvas{width:100%;height:50px;display:block;border-radius:4px}
+.ctrl-table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:6px;background:#161b22;border-radius:4px;overflow:hidden}
+.ctrl-table th{background:#21262d;color:#8b949e;padding:3px 2px;border:1px solid #30363d;text-align:center;font-weight:normal}
+.ctrl-table td{background:#0d1117;padding:3px 2px;border:1px solid #30363d;text-align:center;color:#c9d1d9}
+.ctrl-table td.pos{color:#3fb950}
+.ctrl-table td.neg{color:#f85149}
+
+/* Joystick */
+.joy-area{background:#0d1117;border-radius:6px;border:1px solid #30363d;padding:8px;margin-bottom:6px}
+.joy-row{display:flex;justify-content:space-around;gap:10px}
+.joystick{width:70px;height:70px;background:#21262d;border:2px solid #30363d;border-radius:50%;position:relative;touch-action:none}
+.joystick.active{border-color:#58a6ff}
+.joystick .knob{width:26px;height:26px;background:#58a6ff;border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 2px 6px rgba(88,166,255,0.4)}
+.joystick .lbl{position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:#8b949e;white-space:nowrap}
+.joy-val{text-align:center;font-size:10px;color:#8b949e;margin-top:18px}
+.ctrl-btns{display:flex;gap:4px;margin-top:6px}
+.ctrl-btns button{flex:1;padding:6px;border:none;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer}
+.btn-stop{background:#da3633;color:#fff}
+.btn-mode{background:#8957e5;color:#fff}
+.btn-home{background:#21262d;color:#8b949e;border:1px solid #30363d}
+
+/* Params */
+.params{background:#0d1117;border-radius:6px;border:1px solid #30363d;padding:6px;margin-bottom:6px}
+.params h3{font-size:9px;color:#58a6ff;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px}
+.param-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:3px}
+.param-item{display:flex;align-items:center;gap:3px}
+.param-item label{flex:1;font-size:9px;color:#8b949e;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.param-item input{width:45px;background:#161b22;border:1px solid #30363d;color:#c9d1d9;padding:2px 4px;border-radius:3px;font-size:10px}
+.param-item input:focus{outline:none;border-color:#58a6ff}
+.btn-set{padding:2px 5px;background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:3px;font-size:8px;cursor:pointer}
+
+/* Sensor bars */
+.bar-row{display:flex;align-items:center;gap:4px;margin-bottom:4px}
+.bar-row .lbl{width:20px;font-size:9px;color:#8b949e;text-align:right}
+.bar-row .bar{flex:1;height:8px;background:#161b22;border-radius:4px;position:relative;overflow:hidden}
+.bar-row .bar-fill{position:absolute;height:100%;background:#58a6ff;border-radius:4px;transition:width 0.1s}
+.bar-row .bar-fill.neg{left:50%;background:#f85149}
+.bar-row .bar-fill.pos{left:0;background:#3fb950}
+.bar-row .val{width:50px;font-size:9px;font-family:monospace;text-align:right}
+
+/* Controller page */
+.ctrl-bar{display:flex;align-items:center;gap:4px;margin-bottom:3px}
+.ctrl-bar .lbl{width:60px;font-size:9px;color:#8b949e}
+.ctrl-bar .bar{flex:1;height:10px;background:#161b22;border-radius:5px;position:relative}
+.ctrl-bar .bar-fill{position:absolute;height:100%;left:50%;width:0;background:#58a6ff;border-radius:5px;transition:width 0.1s}
+.ctrl-bar .val{width:40px;font-size:9px;font-family:monospace;text-align:right}
+.ctrl-bar .pct{width:30px;font-size:8px;color:#484f58;text-align:right}
+
+/* PID slider */
+.pid-block{background:#0d1117;border-radius:6px;border:1px solid #30363d;padding:6px;margin-bottom:6px}
+.pid-block h4{font-size:10px;color:#58a6ff;margin-bottom:4px;display:flex;justify-content:space-between}
+.pid-block h4 span{color:#8b949e;font-weight:normal}
+.pid-row{display:flex;align-items:center;gap:4px;margin-bottom:3px}
+.pid-row label{width:20px;font-size:9px;color:#8b949e}
+.pid-row input[type=range]{flex:1;height:4px;-webkit-appearance:none;background:#30363d;border-radius:2px}
+.pid-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;background:#58a6ff;border-radius:50%}
+.pid-row .val{width:40px;font-size:9px;font-family:monospace;text-align:right}
+
+/* Curve */
+.curve{background:#0d1117;border-radius:6px;border:1px solid #30363d;padding:6px}
+.curve h4{font-size:9px;color:#58a6ff;margin-bottom:4px}
+.curve canvas{width:100%;height:80px;background:#161b22;border-radius:4px}
+
+/* Footer */
+.footer{display:flex;gap:4px;padding:4px 6px;background:#161b22;border-top:1px solid #30363d}
+.footer button{flex:1;padding:4px;border:none;border-radius:4px;font-size:9px;font-weight:600;cursor:pointer}
+.btn-refresh{background:#21262d;color:#8b949e;border:1px solid #30363d}
+.btn-save{background:#8957e5;color:#fff}
+
+/* Status */
+.state{font-size:9px;padding:2px 6px;border-radius:3px}
+.state.off{background:#30363d;color:#8b949e}
+.state.on{background:#238636;color:#fff}
+.state.err{background:#da3633;color:#fff}
+
+/* Switch */
+.sw{font-size:9px;padding:2px 6px;border-radius:3px;cursor:pointer}
 </style>
 </head>
 <body>
 
-<div class="top-bar">
-  <h1>BalanceBot 调试控制台</h1>
+<div class="top">
+  <h1>BalanceBot</h1>
   <span id="ws-status" class="status err">未连接</span>
-  <span id="ap-ip" style="font-size:11px;color:#666;margin-left:auto">192.168.4.1</span>
-</div>
-
-<div class="container">
-
-<!-- Column 1: 控制开关 + 3D视图 -->
-<div>
-  <div class="card">
-    <h2>控制开关</h2>
-    <div class="row">
-      <label>电机使能<span class="en">motor_enable</span></label>
-      <label class="switch"><input type="checkbox" id="sw-motor" checked onchange="sendCtrl('motor_enable',this.checked)"><span class="slider"></span></label>
-    </div>
-    <div class="row">
-      <label>平衡使能<span class="en">balance_enable</span></label>
-      <label class="switch"><input type="checkbox" id="sw-balance" checked onchange="sendCtrl('balance_enable',this.checked)"><span class="slider"></span></label>
-    </div>
-  </div>
-
-  <div class="card" style="margin-top:8px">
-    <h2>3D 姿态显示</h2>
-    <canvas id="three-canvas"></canvas>
-  </div>
-
-  <div class="card" style="margin-top:8px">
-    <h2>实时曲线 <span class="hz">最近10秒</span></h2>
-    <canvas id="chart-canvas"></canvas>
-    <div class="chart-legend">
-      <span><span class="color" style="background:#58a6ff"></span>姿态角(deg)</span>
-      <span><span class="color" style="background:#f85149"></span>电机输出(V)</span>
-    </div>
+  <div class="right">
+    <a href="#" onclick="saveParams();return false">保存</a>
   </div>
 </div>
 
-<!-- Column 2: 角度环参数 -->
-<div>
-  <div class="card">
-    <h2>角度环 (内环) <span class="hz">200Hz</span></h2>
-    <div class="row"><label>比例增益 Kp<span class="en">angle_kp</span></label><input type="number" id="cascade-angle_kp" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendAngle('angle_kp')">设置</button></div>
-    <div class="row"><label>积分增益 Ki<span class="en">angle_ki</span></label><input type="number" id="cascade-angle_ki" step="0.1" value="0.0"><button class="btn btn-send" onclick="sendAngle('angle_ki')">设置</button></div>
-    <div class="row"><label>微分增益 Kd<span class="en">angle_kd</span></label><input type="number" id="cascade-angle_kd" step="0.1" value="0.6"><button class="btn btn-send" onclick="sendAngle('angle_kd')">设置</button></div>
-    <div class="row"><label>微分滤波<span class="en">angle_d_alpha</span></label><input type="number" id="cascade-angle_d_alpha" step="0.05" value="0.7"><button class="btn btn-send" onclick="sendAngle('angle_d_alpha')">设置</button></div>
-    <div class="row"><label>最大输出(V)<span class="en">angle_max_out</span></label><input type="number" id="cascade-angle_max_out" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendAngle('angle_max_out')">设置</button></div>
-    <div class="row"><label>积分限幅<span class="en">angle_integrator_limit</span></label><input type="number" id="cascade-angle_integrator_limit" step="0.5" value="2.0"><button class="btn btn-send" onclick="sendAngle('angle_integrator_limit')">设置</button></div>
+<div class="telem-bar">
+  <div class="telem-box"><span class="lbl">俯仰</span><span class="val green" id="t-pitch">--</span><span class="unit">°</span></div>
+  <div class="telem-box"><span class="lbl">滚转</span><span class="val" id="t-roll">--</span><span class="unit">°</span></div>
+  <div class="telem-box"><span class="lbl">偏航</span><span class="val" id="t-yaw">--</span><span class="unit">°/s</span></div>
+  <div class="telem-box"><span class="lbl">左轮</span><span class="val green" id="t-wL">--</span><span class="unit">r/s</span></div>
+  <div class="telem-box"><span class="lbl">右轮</span><span class="val green" id="t-wR">--</span><span class="unit">r/s</span></div>
+  <div class="telem-box"><span class="lbl">左电机</span><span class="val" id="t-lm">--</span><span class="unit">V</span></div>
+  <div class="telem-box"><span class="lbl">右电机</span><span class="val" id="t-rm">--</span><span class="unit">V</span></div>
+  <div class="telem-box"><span class="lbl">状态</span><span class="val" id="t-state">--</span></div>
+</div>
+
+<div class="main">
+  <!-- Page 1: Home -->
+  <div class="page active" id="page-home">
+    <!-- 控制分量表格 -->
+    <table class="ctrl-table">
+      <thead>
+        <tr>
+          <th>分量</th>
+          <th>angle<br>角度</th>
+          <th>gyro<br>角速度</th>
+          <th>dist<br>位置</th>
+          <th>spd<br>速度</th>
+          <th>base<br>基础</th>
+          <th>yaw<br>偏航</th>
+          <th>LM<br>左电机</th>
+          <th>RM<br>右电机</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>V</td>
+          <td id="tbl-angle">0.0</td>
+          <td id="tbl-gyro">0.0</td>
+          <td id="tbl-dist">0.0</td>
+          <td id="tbl-spd">0.0</td>
+          <td id="tbl-base">0.0</td>
+          <td id="tbl-yaw">0.0</td>
+          <td id="tbl-lm">0.0</td>
+          <td id="tbl-rm">0.0</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="view3d">
+      <canvas id="canvas3d"></canvas>
+    </div>
+
+    <div class="joy-area">
+      <div class="joy-row">
+        <div class="joystick" id="joy-fb">
+          <div class="knob"></div>
+          <div class="lbl">前进/后退</div>
+        </div>
+        <div class="joystick" id="joy-lr">
+          <div class="knob"></div>
+          <div class="lbl">左/右转</div>
+        </div>
+      </div>
+      <div class="joy-val">
+        <span id="joy-fb-val">0.0</span> &nbsp; <span id="joy-lr-val">0.0</span>
+      </div>
+      <div class="ctrl-btns">
+        <button class="btn-stop" onclick="setBalance(0)">停止</button>
+        <button class="btn-mode" id="btn-mode" onclick="toggleMode()">平衡</button>
+        <button class="btn-home" onclick="goTab(3)">调参</button>
+      </div>
+    </div>
+
+    <div class="params">
+      <h3>平衡参数</h3>
+      <div class="param-grid">
+        <div class="param-item"><label>angle</label><input type="number" id="p-angle_kp" step="0.5"><button class="btn-set" onclick="setP('angle_kp')">设</button></div>
+        <div class="param-item"><label>gyro</label><input type="number" id="p-gyro_kp" step="0.01"><button class="btn-set" onclick="setP('gyro_kp')">设</button></div>
+        <div class="param-item"><label>distance</label><input type="number" id="p-distance_kp" step="0.1"><button class="btn-set" onclick="setP('distance_kp')">设</button></div>
+        <div class="param-item"><label>speed</label><input type="number" id="p-speed_kp" step="0.1"><button class="btn-set" onclick="setP('speed_kp')">设</button></div>
+        <div class="param-item"><label>yaw</label><input type="number" id="p-yaw_angle_kp" step="0.1"><button class="btn-set" onclick="setP('yaw_angle_kp')">设</button></div>
+        <div class="param-item"><label>lqr_u</label><input type="number" id="p-lqr_u_kp" step="0.1"><button class="btn-set" onclick="setP('lqr_u_kp')">设</button></div>
+        <div class="param-item"><label>tilt</label><input type="number" id="p-max_tilt_deg" step="1"><button class="btn-set" onclick="setP('max_tilt_deg')">设</button></div>
+        <div class="param-item"><label>limit</label><input type="number" id="p-pid_limit" step="0.5"><button class="btn-set" onclick="setP('pid_limit')">设</button></div>
+        <div class="param-item"><label>pitch偏移</label><input type="number" id="p-pitch_offset" step="0.1"><button class="btn-set" onclick="setP('pitch_offset')">设</button></div>
+      </div>
+    </div>
+
+    <div class="params">
+      <h3>控制</h3>
+      <div class="param-grid">
+        <div class="param-item"><label>电机</label><span id="sw-motor" class="sw state on" onclick="toggleSw('motor')">开</span></div>
+        <div class="param-item"><label>平衡</label><span id="sw-balance" class="sw state on" onclick="toggleSw('balance')">开</span></div>
+        <div class="param-item"><label>电压</label><input type="number" id="p-voltage" step="0.5"><button class="btn-set" onclick="setFoc('voltage_limit')">设</button></div>
+        <div class="param-item"><label>速度</label><input type="number" id="p-velocity" step="5"><button class="btn-set" onclick="setFoc('velocity_limit')">设</button></div>
+      </div>
+    </div>
   </div>
 
-  <div class="card" style="margin-top:8px">
-    <h2>FOC 电机参数</h2>
-    <div class="row"><label>运动模式<span class="en">motion_mode</span></label>
-      <select id="foc-motion_mode" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:3px;border-radius:4px;font-size:11px">
-        <option value="0">力矩</option><option value="1">速度</option><option value="2">角度</option>
-      </select>
-      <button class="btn btn-send" onclick="sendFoc('motion_mode')">设置</button>
+  <!-- Page 2: Sensors -->
+  <div class="page" id="page-sensor">
+    <div class="params">
+      <h3>加速度 (m/s²)</h3>
+      <div class="bar-row"><span class="lbl">ax</span><div class="bar"><div class="bar-fill" id="bar-ax"></div></div><span class="val" id="t-ax">0.0</span></div>
+      <div class="bar-row"><span class="lbl">ay</span><div class="bar"><div class="bar-fill" id="bar-ay"></div></div><span class="val" id="t-ay">0.0</span></div>
+      <div class="bar-row"><span class="lbl">az</span><div class="bar"><div class="bar-fill" id="bar-az"></div></div><span class="val" id="t-az">0.0</span></div>
     </div>
-    <div class="row"><label>力矩模式<span class="en">torque_mode</span></label>
-      <select id="foc-torque_mode" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:3px;border-radius:4px;font-size:11px">
-        <option value="0">电压</option><option value="2">FOC电流</option>
-      </select>
-      <button class="btn btn-send" onclick="sendFoc('torque_mode')">设置</button>
+    <div class="params">
+      <h3>陀螺仪 (rad/s)</h3>
+      <div class="bar-row"><span class="lbl">gx</span><div class="bar"><div class="bar-fill" id="bar-gx"></div></div><span class="val" id="t-gx">0.0</span></div>
+      <div class="bar-row"><span class="lbl">gy</span><div class="bar"><div class="bar-fill" id="bar-gy"></div></div><span class="val" id="t-gy">0.0</span></div>
+      <div class="bar-row"><span class="lbl">gz</span><div class="bar"><div class="bar-fill" id="bar-gz"></div></div><span class="val" id="t-gz">0.0</span></div>
     </div>
-    <div class="row"><label>手动目标<span class="en">manual_target</span></label><input type="number" id="set-target" step="0.5" value="0"><button class="btn btn-send" onclick="sendTarget()">设置</button></div>
-    <div class="row"><label>电压限制(V)<span class="en">voltage_limit</span></label><input type="number" id="foc-voltage_limit" step="0.5" value="8.0"><button class="btn btn-send" onclick="sendFoc('voltage_limit')">设置</button></div>
-    <div class="row"><label>速度限制<span class="en">velocity_limit</span></label><input type="number" id="foc-velocity_limit" step="5" value="100"><button class="btn btn-send" onclick="sendFoc('velocity_limit')">设置</button></div>
+    <div class="params">
+      <h3>融合姿态 (°)</h3>
+      <div class="bar-row"><span class="lbl">pitch</span><div class="bar"><div class="bar-fill" id="bar-pitch"></div></div><span class="val" id="t-pitch-bar">0.0</span></div>
+      <div class="bar-row"><span class="lbl">roll</span><div class="bar"><div class="bar-fill" id="bar-roll"></div></div><span class="val" id="t-roll-bar">0.0</span></div>
+    </div>
+    <div class="params">
+      <h3>编码器 (rad/s)</h3>
+      <div class="bar-row"><span class="lbl">wL</span><div class="bar"><div class="bar-fill" id="bar-wL"></div></div><span class="val" id="t-wL-bar">0.0</span></div>
+      <div class="bar-row"><span class="lbl">wR</span><div class="bar"><div class="bar-fill" id="bar-wR"></div></div><span class="val" id="t-wR-bar">0.0</span></div>
+    </div>
+  </div>
+
+  <!-- Page 3: Controller -->
+  <div class="page" id="page-ctrl">
+    <div class="curve" style="height:120px">
+      <canvas id="ctrl-curve-canvas" style="width:100%;height:100%"></canvas>
+    </div>
+    <div class="params">
+      <h3>balance = angle + gyro + dist + spd + yaw</h3>
+      <div class="ctrl-bar"><span class="lbl">angle</span><div class="bar"><div class="bar-fill" id="ctrl-angle"></div></div><span class="val" id="t-ctrl-angle">0</span><span class="pct" id="pct-angle">0%</span></div>
+      <div class="ctrl-bar"><span class="lbl">gyro</span><div class="bar"><div class="bar-fill" id="ctrl-gyro"></div></div><span class="val" id="t-ctrl-gyro">0</span><span class="pct" id="pct-gyro">0%</span></div>
+      <div class="ctrl-bar"><span class="lbl">distance</span><div class="bar"><div class="bar-fill" id="ctrl-dist"></div></div><span class="val" id="t-ctrl-dist">0</span><span class="pct" id="pct-dist">0%</span></div>
+      <div class="ctrl-bar"><span class="lbl">speed</span><div class="bar"><div class="bar-fill" id="ctrl-spd"></div></div><span class="val" id="t-ctrl-spd">0</span><span class="pct" id="pct-spd">0%</span></div>
+    </div>
+    <div class="params">
+      <h3>基础输出</h3>
+      <div class="ctrl-bar"><span class="lbl">base</span><div class="bar"><div class="bar-fill" id="ctrl-base"></div></div><span class="val" id="t-ctrl-base">0</span></div>
+    </div>
+    <div class="params">
+      <h3>Yaw输出</h3>
+      <div class="ctrl-bar"><span class="lbl">yaw</span><div class="bar"><div class="bar-fill" id="ctrl-yaw"></div></div><span class="val" id="t-ctrl-yaw">0</span></div>
+    </div>
+    <div class="params">
+      <h3>电机输出</h3>
+      <div class="ctrl-bar"><span class="lbl">左电机</span><div class="bar"><div class="bar-fill" id="ctrl-lm"></div></div><span class="val" id="t-ctrl-lm">0</span></div>
+      <div class="ctrl-bar"><span class="lbl">右电机</span><div class="bar"><div class="bar-fill" id="ctrl-rm"></div></div><span class="val" id="t-ctrl-rm">0</span></div>
+    </div>
+    <div class="params">
+      <h3>状态</h3>
+      <div style="font-size:10px">
+        运行: <span id="s-running" class="state off">否</span> &nbsp;
+        故障: <span id="s-fault">0</span> &nbsp;
+        轮离地: <span id="s-lifted" class="state off">否</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Page 4: Tuning -->
+  <div class="page" id="page-tune">
+    <div class="pid-block">
+      <h4>角度环 <span id="val-angle">6.0</span></h4>
+      <div class="pid-row"><label>Kp</label><input type="range" id="sl-angle_kp" min="0" max="20" step="0.5" value="6"><span class="val" id="sl-val-angle_kp">6.0</span></div>
+    </div>
+    <div class="pid-block">
+      <h4>角速度环 <span id="val-gyro">0.06</span></h4>
+      <div class="pid-row"><label>Kp</label><input type="range" id="sl-gyro_kp" min="0" max="0.5" step="0.01" value="0.06"><span class="val" id="sl-val-gyro_kp">0.06</span></div>
+    </div>
+    <div class="pid-block">
+      <h4>位置环 <span id="val-distance">0.5</span></h4>
+      <div class="pid-row"><label>Kp</label><input type="range" id="sl-distance_kp" min="0" max="5" step="0.1" value="0.5"><span class="val" id="sl-val-distance_kp">0.5</span></div>
+    </div>
+    <div class="pid-block">
+      <h4>速度环 <span id="val-speed">0.7</span></h4>
+      <div class="pid-row"><label>Kp</label><input type="range" id="sl-speed_kp" min="0" max="5" step="0.1" value="0.7"><span class="val" id="sl-val-speed_kp">0.7</span></div>
+    </div>
+    <div class="pid-block">
+      <h4>偏航环 <span id="val-yaw">1.0</span></h4>
+      <div class="pid-row"><label>Kp</label><input type="range" id="sl-yaw_angle_kp" min="0" max="5" step="0.1" value="1.0"><span class="val" id="sl-val-yaw_angle_kp">1.0</span></div>
+    </div>
+    <div class="pid-block">
+      <h4>补偿环 <span id="val-lqr">K:1.0 I:15</span></h4>
+      <div class="pid-row"><label>Kp</label><input type="range" id="sl-lqr_u_kp" min="0" max="10" step="0.1" value="1.0"><span class="val" id="sl-val-lqr_u_kp">1.0</span></div>
+      <div class="pid-row"><label>Ki</label><input type="range" id="sl-lqr_u_ki" min="0" max="50" step="1" value="15"><span class="val" id="sl-val-lqr_u_ki">15</span></div>
+    </div>
+    <div class="curve">
+      <h4>实时响应曲线 <span style="color:#58a6ff">姿态(蓝)</span> <span style="color:#3fb950">输出(绿)</span></h4>
+      <canvas id="curve-canvas"></canvas>
+    </div>
   </div>
 </div>
 
-<!-- Column 3: 速度环 + 安全参数 -->
-<div>
-  <div class="card">
-    <h2>速度环 (外环) <span class="hz" id="velocity-freq">50Hz</span></h2>
-    <div class="row"><label>比例增益 Kp<span class="en">velocity_kp</span></label><input type="number" id="cascade-velocity_kp" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendVelocity('velocity_kp')">设置</button></div>
-    <div class="row"><label>积分增益 Ki<span class="en">velocity_ki</span></label><input type="number" id="cascade-velocity_ki" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendVelocity('velocity_ki')">设置</button></div>
-    <div class="row"><label>最大倾角(rad)<span class="en">velocity_max_tilt</span></label><input type="number" id="cascade-velocity_max_tilt" step="0.05" value="0.14"><button class="btn btn-send" onclick="sendVelocity('velocity_max_tilt')">设置</button></div>
-  </div>
-
-  <div class="card" style="margin-top:8px">
-    <h2>安全限制</h2>
-    <div class="row"><label>最大安全倾角<span class="en">max_tilt</span></label><input type="number" id="cascade-max_tilt" step="0.05" value="0.611"><button class="btn btn-send" onclick="sendSafety('max_tilt')">设置</button></div>
-    <div class="row"><label>启动斜坡时间<span class="en">ramp_time</span></label><input type="number" id="cascade-ramp_time" step="0.1" value="0.5"><button class="btn btn-send" onclick="sendSafety('ramp_time')">设置</button></div>
-    <div class="row"><label>姿态零点偏移<span class="en">pitch_offset</span></label><input type="number" id="cascade-pitch_offset" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendSafety('pitch_offset')">设置</button></div>
-  </div>
-
-  <div class="card" style="margin-top:8px">
-    <h2>操作</h2>
-    <button class="btn btn-send" onclick="refreshParams()" style="margin:4px;width:45%">刷新参数</button>
-    <button class="btn btn-save" onclick="saveParams()" style="margin:4px;width:45%">保存到Flash</button>
-    <button class="btn btn-on" onclick="window.location.href='/control'" style="margin:4px;width:94%">打开遥控页面</button>
-  </div>
+<div class="nav">
+  <button class="active" onclick="goTab(0)">首页</button>
+  <button onclick="goTab(1)">传感器</button>
+  <button onclick="goTab(2)">控制</button>
+  <button onclick="goTab(3)">调参</button>
 </div>
 
-<!-- Column 4: 实时数据 -->
-<div>
-  <div class="card">
-    <h2>姿态数据 <span class="hz" id="inner-freq">200Hz</span></h2>
-    <div class="telem-grid">
-      <div class="telem-item"><span class="lbl">俯仰角</span><span class="val" id="t-pitch">-</span><span class="unit">deg</span></div>
-      <div class="telem-item"><span class="lbl">俯仰角速度</span><span class="val" id="t-pr">-</span><span class="unit">deg/s</span></div>
-      <div class="telem-item"><span class="lbl">横滚角</span><span class="val" id="t-roll-deg">-</span><span class="unit">deg</span></div>
-      <div class="telem-item"><span class="lbl">偏航角</span><span class="val" id="t-yaw-deg">-</span><span class="unit">deg</span></div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-top:8px">
-    <h2>速度环状态<span class="limit-led" id="led-vel"></span></h2>
-    <div class="telem-grid">
-      <div class="telem-item"><span class="lbl">当前速度</span><span class="val" id="t-vel">-</span><span class="unit">rad/s</span></div>
-      <div class="telem-item"><span class="lbl">目标速度</span><span class="val" id="t-vel-target">-</span><span class="unit">rad/s</span></div>
-      <div class="telem-item"><span class="lbl">速度误差</span><span class="val" id="t-vel-error">-</span></div>
-      <div class="telem-item"><span class="lbl">速度积分</span><span class="val" id="t-vel-i">-</span></div>
-      <div class="telem-item" id="t-pitch-cmd-box"><span class="lbl">姿态指令</span><span class="val" id="t-pitch-cmd">-</span><span class="unit">deg</span></div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-top:8px">
-    <h2>角度环状态<span class="limit-led" id="led-angle"></span></h2>
-    <div class="telem-grid">
-      <div class="telem-item"><span class="lbl">角度误差</span><span class="val" id="t-pitch-error">-</span></div>
-      <div class="telem-item"><span class="lbl">角度积分</span><span class="val" id="t-pitch-i">-</span></div>
-      <div class="telem-item" id="t-motor-box"><span class="lbl">电机输出</span><span class="val" id="t-motor">-</span><span class="unit">V</span></div>
-      <div class="telem-item"><span class="lbl">启动增益</span><span class="val" id="t-eg">-</span></div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-top:8px">
-    <h2>系统状态</h2>
-    <div style="margin-bottom:6px">
-      状态: <span id="t-state" class="state-badge state-0">未启用</span>
-      故障: <span id="t-fault" style="font-family:monospace;color:#f85149">0</span>
-    </div>
-    <div class="telem-grid">
-      <div class="telem-item"><span class="lbl">外环频率</span><span class="val" id="t-outer-hz">-</span><span class="unit">Hz</span></div>
-      <div class="telem-item"><span class="lbl">内环频率</span><span class="val" id="t-inner-hz">-</span><span class="unit">Hz</span></div>
-    </div>
-    <div class="stats-row">
-      <span>运行: <b id="t-runtime">0</b>s</span>
-      <span>故障: <b id="t-fault-cnt">0</b>次 <span id="t-fault-type" style="color:#f85149;font-size:0.85em"></span></span>
-      <span>最大角: <b id="t-max-pitch">0</b>°</span>
-    </div>
-  </div>
+<div class="footer">
+  <button class="btn-refresh" onclick="refresh()">刷新</button>
+  <button class="btn-save" onclick="saveParams()">保存</button>
 </div>
 
-</div>
-
-<!-- Three.js from LittleFS (gzipped) -->
+<!-- Three.js -->
 <script type="importmap">{"imports":{"three":"/three.module.js"}}</script>
 <script type="module">
 import * as THREE from 'three';
 
-const canvas = document.getElementById('three-canvas');
+const canvas = document.getElementById('canvas3d');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0d1117);
 
-const camera = new THREE.PerspectiveCamera(50, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
-camera.position.set(2, 1.5, 2);
+const camera = new THREE.PerspectiveCamera(50, canvas.clientWidth/canvas.clientHeight||1, 0.1, 100);
+camera.position.set(1.2, 0.8, 1.2);
 camera.lookAt(0, 0, 0);
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setSize(canvas.clientWidth||200, canvas.clientHeight||50);
 renderer.setPixelRatio(window.devicePixelRatio);
 
-// Lights
 scene.add(new THREE.AmbientLight(0x404040, 2));
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-dirLight.position.set(3, 5, 3);
+dirLight.position.set(2, 3, 2);
 scene.add(dirLight);
 
-// Robot body
-const bodyGeo = new THREE.BoxGeometry(0.6, 0.15, 0.3);
-const bodyMat = new THREE.MeshPhongMaterial({ color: 0x58a6ff });
+const bodyGeo = new THREE.BoxGeometry(0.4, 0.1, 0.2);
+const bodyMat = new THREE.MeshPhongMaterial({color: 0x58a6ff});
 const body = new THREE.Mesh(bodyGeo, bodyMat);
 scene.add(body);
 
-// Wheels
-const wheelGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.06, 16);
-const wheelMat = new THREE.MeshPhongMaterial({ color: 0x484f58 });
+const wheelGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.03, 10);
+const wheelMat = new THREE.MeshPhongMaterial({color: 0x484f58});
 const lWheel = new THREE.Mesh(wheelGeo, wheelMat);
-lWheel.rotation.x = Math.PI / 2;
-lWheel.position.set(0, -0.05, 0.2);
+lWheel.rotation.x = Math.PI/2;
+lWheel.position.set(0, -0.03, 0.08);
 body.add(lWheel);
 
 const rWheel = new THREE.Mesh(wheelGeo, wheelMat);
-rWheel.rotation.x = Math.PI / 2;
-rWheel.position.set(0, -0.05, -0.2);
+rWheel.rotation.x = Math.PI/2;
+rWheel.position.set(0, -0.03, -0.08);
 body.add(rWheel);
 
-// Axes helper
-scene.add(new THREE.AxesHelper(0.5));
+scene.add(new THREE.GridHelper(1.5, 8, 0x30363d, 0x21262d));
 
-// Grid
-const grid = new THREE.GridHelper(4, 20, 0x30363d, 0x21262d);
-scene.add(grid);
-
-// Expose update function
-window._update3D = function(pitch, roll, yaw) {
-  body.rotation.set(
-    pitch,
-    yaw * Math.PI / 180,
-    roll * Math.PI / 180
-  );
+window.update3D = function(pitch, roll, yaw) {
+  body.rotation.set(pitch * Math.PI/180, yaw * Math.PI/180, roll * Math.PI/180);
 };
 
 function animate() {
@@ -270,289 +382,418 @@ function animate() {
 }
 animate();
 
-// Handle resize
-const ro = new ResizeObserver(() => {
+new ResizeObserver(()=>{
   const w = canvas.clientWidth, h = canvas.clientHeight;
-  renderer.setSize(w, h);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-});
-ro.observe(canvas);
-
-// ==================== Chart ====================
-const chartCanvas = document.getElementById('chart-canvas');
-const chartCtx = chartCanvas.getContext('2d');
-const chartData = { pitch: [], motor: [] };
-const maxPoints = 200; // 10 seconds at 20Hz
-
-// Ensure canvas has valid initial size
-function resizeChart() {
-  const rect = chartCanvas.getBoundingClientRect();
-  const w = Math.floor(rect.width) || 300;
-  const h = Math.floor(rect.height) || 120;
-  if (w > 0 && h > 0) {
-    chartCanvas.width = w;
-    chartCanvas.height = h;
-  }
-}
-resizeChart();
-setTimeout(resizeChart, 100);
-new ResizeObserver(resizeChart).observe(chartCanvas);
-
-window._updateChart = function(pitchDeg, motorV) {
-  // Validate inputs
-  if (!isFinite(pitchDeg) || !isFinite(motorV)) return;
-
-  chartData.pitch.push(pitchDeg);
-  chartData.motor.push(motorV);
-  if (chartData.pitch.length > maxPoints) {
-    chartData.pitch.shift();
-    chartData.motor.shift();
-  }
-
-  // Ensure canvas has valid dimensions before drawing
-  let w = chartCanvas.width, h = chartCanvas.height;
-  if (w === 0 || h === 0) {
-    const rect = chartCanvas.getBoundingClientRect();
-    w = Math.floor(rect.width) || 300;
-    h = Math.floor(rect.height) || 120;
-    if (w === 0 || h === 0) return; // Still no valid size, skip this frame
-    chartCanvas.width = w;
-    chartCanvas.height = h;
-  }
-
-  chartCtx.fillStyle = '#0d1117';
-  chartCtx.fillRect(0, 0, w, h);
-
-  if (chartData.pitch.length < 2) return;
-
-  // Draw pitch curve (blue)
-  chartCtx.strokeStyle = '#58a6ff';
-  chartCtx.lineWidth = 2;
-  chartCtx.beginPath();
-  for (let i = 0; i < chartData.pitch.length; i++) {
-    const x = (i / (maxPoints - 1)) * w;
-    const y = h/2 - (chartData.pitch[i] / 45) * (h/2); // ±45 degrees full scale
-    if (i === 0) chartCtx.moveTo(x, y);
-    else chartCtx.lineTo(x, y);
-  }
-  chartCtx.stroke();
-
-  // Draw motor curve (red)
-  chartCtx.strokeStyle = '#f85149';
-  chartCtx.lineWidth = 2;
-  chartCtx.beginPath();
-  for (let i = 0; i < chartData.motor.length; i++) {
-    const x = (i / (maxPoints - 1)) * w;
-    const y = h - (chartData.motor[i] / 12) * h; // 0-12V full scale
-    if (i === 0) chartCtx.moveTo(x, y);
-    else chartCtx.lineTo(x, y);
-  }
-  chartCtx.stroke();
-};
+  if(w>0 && h>0){renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}
+}).observe(canvas);
 </script>
 
 <script>
-// ==================== WebSocket ====================
 let ws = null;
-let telemCount = 0;
-let lastHzTime = Date.now();
+let balanceMode = true;
+let curTab = 0;
 
+// Curve data
+const curveData = {pitch:[], out:[]};
+const maxPoints = 100;
+const curveCanvas = document.getElementById('curve-canvas');
+const curveCtx = curveCanvas.getContext('2d');
+
+// Controller page curve data
+const ctrlCurveData = {angle:[], gyro:[], dist:[], spd:[], lqr_raw:[], yaw:[]};
+const ctrlCurveCanvas = document.getElementById('ctrl-curve-canvas');
+const ctrlCurveCtx = ctrlCurveCanvas.getContext('2d');
+
+function resizeCtrlCurve(){
+  const r = ctrlCurveCanvas.getBoundingClientRect();
+  if(r.width>0 && r.height>0){ctrlCurveCanvas.width=r.width;ctrlCurveCanvas.height=r.height;}
+}
+resizeCtrlCurve();
+new ResizeObserver(resizeCtrlCurve).observe(ctrlCurveCanvas);
+
+function drawCtrlCurve(){
+  const w=ctrlCurveCanvas.width, h=ctrlCurveCanvas.height;
+  if(w===0||h===0)return;
+  ctrlCurveCtx.fillStyle='#0d1117';
+  ctrlCurveCtx.fillRect(0,0,w,h);
+  if(ctrlCurveData.angle.length<2)return;
+  // Draw zero line
+  ctrlCurveCtx.strokeStyle='#30363d';
+  ctrlCurveCtx.beginPath();
+  ctrlCurveCtx.moveTo(0,h/2);ctrlCurveCtx.lineTo(w,h/2);
+  ctrlCurveCtx.stroke();
+  const colors = {angle:'#f97583', gyro:'#79c0ff', dist:'#7ee787', spd:'#d2a8ff', lqr_raw:'#ffa657', yaw:'#ff7b72'};
+  const labels = {angle:'角度', gyro:'角速度', dist:'位置', spd:'速度', lqr_raw:'基础', yaw:'偏航'};
+  const keys = ['angle','gyro','dist','spd','lqr_raw','yaw'];
+  const limit = 8;
+  for(const k of keys){
+    const arr = ctrlCurveData[k];
+    if(arr.length<2)continue;
+    ctrlCurveCtx.strokeStyle=colors[k];
+    ctrlCurveCtx.lineWidth=1.5;
+    ctrlCurveCtx.beginPath();
+    for(let i=0;i<arr.length;i++){
+      const x = (i/(maxPoints-1))*w;
+      const y = h/2 - (arr[i]/limit)*(h/2);
+      if(i===0)ctrlCurveCtx.moveTo(x,y);else ctrlCurveCtx.lineTo(x,y);
+    }
+    ctrlCurveCtx.stroke();
+  }
+  // Legend (中英双语)
+  ctrlCurveCtx.font='9px monospace';
+  let lx=5;
+  const enLabels = {angle:'angle', gyro:'gyro', dist:'dist', spd:'spd', lqr_raw:'base', yaw:'yaw'};
+  for(const k of keys){
+    ctrlCurveCtx.fillStyle=colors[k];
+    ctrlCurveCtx.fillText(labels[k]+'('+enLabels[k]+')',lx,10);lx+=ctrlCurveCtx.measureText(labels[k]+'('+enLabels[k]+')').width+8;
+  }
+}
+
+function resizeCurve(){
+  const r = curveCanvas.getBoundingClientRect();
+  if(r.width>0 && r.height>0){curveCanvas.width=r.width;curveCanvas.height=r.height;}
+}
+resizeCurve();
+new ResizeObserver(resizeCurve).observe(curveCanvas);
+
+function drawCurve(){
+  const w=curveCanvas.width, h=curveCanvas.height;
+  if(w===0||h===0)return;
+  curveCtx.fillStyle='#161b22';
+  curveCtx.fillRect(0,0,w,h);
+  if(curveData.pitch.length<2)return;
+
+  // pitch (blue)
+  curveCtx.strokeStyle='#58a6ff';
+  curveCtx.lineWidth=1.5;
+  curveCtx.beginPath();
+  for(let i=0;i<curveData.pitch.length;i++){
+    const x=(i/maxPoints)*w;
+    const y=h/2 - (curveData.pitch[i]/45)*(h/2);
+    if(i===0)curveCtx.moveTo(x,y);else curveCtx.lineTo(x,y);
+  }
+  curveCtx.stroke();
+
+  // output (green)
+  curveCtx.strokeStyle='#3fb950';
+  curveCtx.beginPath();
+  for(let i=0;i<curveData.out.length;i++){
+    const x=(i/maxPoints)*w;
+    const y=h - (curveData.out[i]/12)*h;
+    if(i===0)curveCtx.moveTo(x,y);else curveCtx.lineTo(x,y);
+  }
+  curveCtx.stroke();
+}
+
+// Tab navigation
+function goTab(n){
+  curTab = n;
+  document.querySelectorAll('.page').forEach((p,i)=>p.classList.toggle('active',i===n));
+  document.querySelectorAll('.nav button').forEach((b,i)=>b.classList.toggle('active',i===n));
+}
+
+// WebSocket
 function connect() {
-  const host = location.hostname || '192.168.4.1';
-  ws = new WebSocket('ws://' + host + '/ws');
-
-  ws.onopen = function() {
+  ws = new WebSocket('ws://' + (location.hostname||'192.168.4.1') + '/ws');
+  ws.onopen = () => {
     document.getElementById('ws-status').textContent = '已连接';
     document.getElementById('ws-status').className = 'status ok';
     ws.send('{"type":"get_params"}');
   };
-
-  ws.onclose = function() {
+  ws.onclose = () => {
     document.getElementById('ws-status').textContent = '未连接';
     document.getElementById('ws-status').className = 'status err';
     setTimeout(connect, 2000);
   };
-
-  ws.onerror = function() { ws.close(); };
-
-  ws.onmessage = function(evt) {
+  ws.onerror = () => ws.close();
+  ws.onmessage = (e) => {
     try {
-      const msg = JSON.parse(evt.data);
-      if (msg.type === 'telem') handleTelem(msg);
-      else if (msg.type === 'params') handleParams(msg);
-      else if (msg.type === 'ack') { /* ok */ }
-    } catch(e) {}
+      const m = JSON.parse(e.data);
+      if(m.type==='telem') handleTelem(m);
+      else if(m.type==='params') handleParams(m);
+    } catch(err){}
   };
 }
 
-// ==================== Telemetry Handler ====================
-const stateNames = ['未启用', '运行中', '故障'];
-const faultBits = [
-  [1, '倾斜过大'],
-  [2, '传感器丢失'],
-  [4, 'dt异常'],
-  [8, '已禁用'],
-];
-function decodeFault(flags) {
-  if (!flags) return '无';
-  return faultBits.filter(([b]) => flags & b).map(([,n]) => n).join(', ');
+function handleTelem(d) {
+  // Update control table
+  const tblVals = {
+    'tbl-angle':d.angle, 'tbl-gyro':d.gyro, 'tbl-dist':d.dist,
+    'tbl-spd':d.spd, 'tbl-base':d.lqr_comp, 'tbl-yaw':d.yaw,
+    'tbl-lm':d.lm, 'tbl-rm':d.rm
+  };
+  for(const [id, v] of Object.entries(tblVals)){
+    const el = document.getElementById(id);
+    if(el && v!=null){
+      el.textContent = v.toFixed(1);
+      el.className = v>=0?'pos':'neg';
+    }
+  }
+
+  // Home page telemetry
+  setText('t-pitch', d.pitch_deg!=null?d.pitch_deg.toFixed(1):'--');
+  setText('t-roll', d.roll_deg!=null?d.roll_deg.toFixed(1):'--');
+  setText('t-yaw', d.yr!=null?d.yr.toFixed(0):'--');
+  setText('t-wL', d.wL!=null?d.wL.toFixed(1):'--');
+  setText('t-wR', d.wR!=null?d.wR.toFixed(1):'--');
+  setText('t-lm', d.lm!=null?d.lm.toFixed(1):'--');
+  setText('t-rm', d.rm!=null?d.rm.toFixed(1):'--');
+
+  const state = document.getElementById('t-state');
+  if(d.running){state.textContent='运行';state.className='val green';}
+  else if(d.fault){state.textContent='故障';state.className='val red';}
+  else{state.textContent='停止';state.className='val';}
+
+  if(window.update3D && d.pitch_deg!=null){
+    window.update3D(d.pitch_deg, d.roll_deg||0, d.yr||0);
+  }
+
+  // Sensor page bars
+  updateBar('ax', d.ax, -20, 20);
+  updateBar('ay', d.ay, -20, 20);
+  updateBar('az', d.az, -20, 20);
+  updateBar('gx', d.gx, -10, 10);
+  updateBar('gy', d.gy, -10, 10);
+  updateBar('gz', d.gz, -10, 10);
+  updateBar('pitch', d.pitch_deg, -45, 45);
+  updateBar('roll', d.roll_deg, -45, 45);
+  updateBar('wL', d.wL, -30, 30);
+  updateBar('wR', d.wR, -30, 30);
+
+  // Controller page
+  const limit = 8;
+  updateCtrlBar('angle', d.angle, limit);
+  updateCtrlBar('gyro', d.gyro, limit);
+  updateCtrlBar('dist', d.dist, limit);
+  updateCtrlBar('spd', d.spd, limit);
+  updateCtrlBar('base', d.lqr_comp, limit);
+  updateCtrlBar('yaw', d.yaw, limit);
+  updateCtrlBar('lm', d.lm, limit);
+  updateCtrlBar('rm', d.rm, limit);
+
+  // Controller curve data collection
+  if(d.angle!=null){
+    ctrlCurveData.angle.push(d.angle);
+    ctrlCurveData.gyro.push(d.gyro||0);
+    ctrlCurveData.dist.push(d.dist||0);
+    ctrlCurveData.spd.push(d.spd||0);
+    ctrlCurveData.lqr_raw.push(d.lqr_raw||0);
+    ctrlCurveData.yaw.push(d.yaw||0);
+    if(ctrlCurveData.angle.length>maxPoints){
+      ctrlCurveData.angle.shift();ctrlCurveData.gyro.shift();
+      ctrlCurveData.dist.shift();ctrlCurveData.spd.shift();
+      ctrlCurveData.lqr_raw.shift();ctrlCurveData.yaw.shift();
+    }
+    drawCtrlCurve();
+  }
+
+  document.getElementById('s-running').textContent = d.running?'是':'否';
+  document.getElementById('s-running').className = d.running?'state on':'state off';
+  document.getElementById('s-fault').textContent = d.fault||0;
+  document.getElementById('s-lifted').textContent = d.lifted?'是':'否';
+  document.getElementById('s-lifted').className = d.lifted?'state err':'state off';
+
+  // Tuning page curve
+  if(d.pitch_deg!=null && d.lqr_comp!=null){
+    curveData.pitch.push(d.pitch_deg);
+    curveData.out.push(d.lqr_comp);
+    if(curveData.pitch.length>maxPoints){curveData.pitch.shift();curveData.out.shift();}
+    drawCurve();
+  }
 }
 
-function handleTelem(d) {
-  telemCount++;
-  const now = Date.now();
-  if (now - lastHzTime >= 1000) {
-    lastHzTime = now;
-    telemCount = 0;
+function updateBar(id, val, min, max){
+  if(val==null)return;
+  const pct = (val - min) / (max - min) * 100;
+  const bar = document.getElementById('bar-'+id);
+  const txt = document.getElementById('t-'+id);
+  if(bar){
+    const isNeg = val < 0;
+    const width = Math.min(Math.abs(pct), 50);
+    bar.style.width = width + '%';
+    bar.style.left = isNeg ? (50 - width) + '%' : '50%';
+    bar.className = 'bar-fill' + (isNeg?' neg':' pos');
   }
+  if(txt) txt.textContent = val.toFixed(1);
+}
 
-  // Attitude
-  setText('t-pitch', d.pitch_deg.toFixed(1));
-  setText('t-pr', (d.pr * 180 / Math.PI).toFixed(1));
-  setText('t-roll-deg', d.roll_deg.toFixed(1));
-  setText('t-yaw-deg', d.yaw_deg.toFixed(1));
-
-  // Velocity loop
-  setText('t-vel', d.vel.toFixed(2));
-  setText('t-vel-target', d.vel_target.toFixed(2));
-  setText('t-vel-error', d.vel_error.toFixed(3));
-  setText('t-vel-i', d.vel_i.toFixed(3));
-  setText('t-pitch-cmd', (d.pitch_cmd * 180 / Math.PI).toFixed(1));
-  setSatLed('led-vel', d.saturated & 1);
-  setSatBox('t-pitch-cmd-box', d.saturated & 1);
-
-  // Angle loop
-  setText('t-pitch-error', d.pitch_error.toFixed(3));
-  setText('t-pitch-i', d.pitch_i.toFixed(3));
-  setText('t-motor', d.motor.toFixed(2));
-  setText('t-eg', d.eg.toFixed(2));
-  setSatLed('led-angle', d.saturated & 2);
-  setSatBox('t-motor-box', d.saturated & 4);
-
-  // System status
-  const stateEl = document.getElementById('t-state');
-  stateEl.textContent = stateNames[d.state] || '?';
-  stateEl.className = 'state-badge state-' + d.state;
-  const faultEl = document.getElementById('t-fault');
-  faultEl.textContent = d.fault ? decodeFault(d.fault) : '无';
-  faultEl.style.color = d.fault ? '#f85149' : '#7ee787';
-
-  // Frequency
-  if (d.vel_hz !== undefined) {
-    setText('t-vel-hz', d.vel_hz.toFixed(0));
-    document.getElementById('velocity-freq').textContent = d.vel_hz.toFixed(0) + 'Hz';
+function updateCtrlBar(id, val, limit){
+  if(val==null)return;
+  const absVal = Math.abs(val);
+  const pct = Math.min(absVal / limit * 100, 100);
+  const bar = document.getElementById('ctrl-'+id);
+  const txt = document.getElementById('t-ctrl-'+id);
+  const pctEl = document.getElementById('pct-'+id);
+  if(bar){
+    bar.style.width = pct + '%';
+    bar.style.left = val < 0 ? (50 - pct/2) + '%' : '50%';
   }
-  if (d.ang_hz !== undefined) {
-    setText('t-ang-hz', d.ang_hz.toFixed(0));
-    document.getElementById('angle-freq').textContent = d.ang_hz.toFixed(0) + 'Hz';
+  if(txt) txt.textContent = val.toFixed(1);
+  if(pctEl) pctEl.textContent = Math.round(absVal/limit*100) + '%';
+}
+
+function handleParams(m) {
+  if(m.balance){
+    for(const[k,v] of Object.entries(m.balance)){
+      const el = document.getElementById('p-'+k);
+      if(el) el.value = v;
+      // Update sliders
+      const sl = document.getElementById('sl-'+k);
+      if(sl){sl.value=v;document.getElementById('sl-val-'+k).textContent=v.toFixed(2);}
+    }
   }
-  // Legacy fields
-  if (d.outer_hz !== undefined) setText('t-outer-hz', d.outer_hz.toFixed(0));
-  if (d.inner_hz !== undefined) setText('t-inner-hz', d.inner_hz.toFixed(0));
-
-  // Runtime stats
-  setText('t-runtime', d.runtime);
-  setText('t-fault-cnt', d.fault_cnt);
-  if (d.fault) setText('t-fault-type', '(' + decodeFault(d.fault) + ')');
-  setText('t-max-pitch', (d.max_pitch * 180 / Math.PI).toFixed(1));
-
-  // Update 3D
-  if (window._update3D) {
-    window._update3D(d.pitch, d.roll_deg, d.yaw_deg);
+  if(m.ctrl){
+    const ms = document.getElementById('sw-motor');
+    const bs = document.getElementById('sw-balance');
+    if(m.ctrl.motor_enable!==undefined){
+      ms.textContent = m.ctrl.motor_enable?'开':'关';
+      ms.className = m.ctrl.motor_enable?'sw state on':'sw state off';
+    }
+    if(m.ctrl.balance_enable!==undefined){
+      bs.textContent = m.ctrl.balance_enable?'开':'关';
+      bs.className = m.ctrl.balance_enable?'sw state on':'sw state off';
+    }
   }
-
-  // Update chart
-  if (window._updateChart && d.pitch_deg != null && d.motor != null) {
-    window._updateChart(d.pitch_deg, d.motor);
+  if(m.foc){
+    if(m.foc.voltage_limit!==undefined) document.getElementById('p-voltage').value = m.foc.voltage_limit;
+    if(m.foc.velocity_limit!==undefined) document.getElementById('p-velocity').value = m.foc.velocity_limit;
   }
 }
 
 function setText(id, v) { document.getElementById(id).textContent = v; }
-function setSatLed(id, on) { document.getElementById(id).className = 'limit-led' + (on ? ' on' : ''); }
-function setSatBox(id, sat) {
-  const el = document.getElementById(id);
-  if (sat) el.classList.add('sat');
-  else el.classList.remove('sat');
+
+function send(obj) { if(ws && ws.readyState===1) ws.send(JSON.stringify(obj)); }
+
+function setP(k) {
+  const v = parseFloat(document.getElementById('p-'+k).value);
+  let cmd = 'set_angle';
+  if(k.includes('distance')||k.includes('speed')) cmd = 'set_velocity';
+  else if(k.includes('yaw')) cmd = 'set_yaw';
+  else if(k.includes('tilt')||k.includes('limit')||k==='pitch_offset') cmd = 'set_safety';
+  send({type:cmd, key:k, value:v});
 }
 
-// ==================== Params Handler ====================
-function handleParams(msg) {
-  if (msg.cascade) {
-    for (const [k, v] of Object.entries(msg.cascade)) {
-      const el = document.getElementById('cascade-' + k);
-      if (el) el.value = v;
+function setFoc(k) {
+  const v = parseFloat(document.getElementById('p-'+(k==='voltage_limit'?'voltage':'velocity')).value);
+  send({type:'set_foc', key:k, value:v});
+}
+
+function toggleSw(k) {
+  const el = document.getElementById('sw-'+k);
+  const on = el.className.includes('on');
+  send({type:'set_ctrl', key:k+'_enable', value:on?0:1});
+}
+
+function setBalance(v) { send({type:'set_ctrl', key:'balance_enable', value:v}); }
+function refresh() { send({'type':'get_params'}); }
+function saveParams() { send({'type':'save_params'}); alert('已保存'); }
+
+function toggleMode() {
+  balanceMode = !balanceMode;
+  document.getElementById('btn-mode').textContent = balanceMode?'平衡':'手动';
+}
+
+// Slider handlers
+['angle_kp','gyro_kp','distance_kp','speed_kp','yaw_angle_kp','lqr_u_kp','lqr_u_ki'].forEach(k=>{
+  const sl = document.getElementById('sl-'+k);
+  if(sl){
+    sl.addEventListener('input',()=>{
+      const v = parseFloat(sl.value);
+      document.getElementById('sl-val-'+k).textContent = v.toFixed(2);
+    });
+    sl.addEventListener('change',()=>{
+      const v = parseFloat(sl.value);
+      let cmd = 'set_angle';
+      if(k.includes('distance')||k.includes('speed')) cmd = 'set_velocity';
+      else if(k.includes('yaw')) cmd = 'set_yaw';
+      else if(k==='lqr_u_kp'||k==='lqr_u_ki') cmd = 'set_compensation';
+      send({type:cmd, key:k, value:v});
+    });
+  }
+});
+
+// Joystick
+const joyFB = {el:document.getElementById('joy-fb'), x:0, y:0, active:false, id:null};
+const joyLR = {el:document.getElementById('joy-lr'), x:0, y:0, active:false, id:null};
+
+function setupJoy(joy, isLR) {
+  const knob = joy.el.querySelector('.knob');
+  const maxD = 22;
+
+  function update() {
+    knob.style.transform = `translate(calc(-50% + ${joy.x*maxD}px), calc(-50% + ${joy.y*maxD}px))`;
+  }
+
+  function handle(s, cx, cy) {
+    const r = s.getBoundingClientRect();
+    const dx = cx - r.left - r.width/2;
+    const dy = cy - r.top - r.height/2;
+    const d = Math.sqrt(dx*dx+dy*dy);
+    if(d > maxD){joy.x=dx/d*(maxD/(r.width/2));joy.y=dy/d*(maxD/(r.height/2));}
+    else{joy.x=dx/(r.width/2);joy.y=dy/(r.height/2);}
+    if(isLR) joy.x = -joy.x;
+    update();
+    // Update display
+    const valEl = document.getElementById(isLR?'joy-lr-val':'joy-fb-val');
+    if(valEl) valEl.textContent = (isLR?joy.x:(-joy.y)*0.5).toFixed(2);
+    sendCmd();
+  }
+
+  function end() {
+    joy.active = false; joy.x=0; joy.y=0; joy.id=null;
+    joy.el.classList.remove('active');
+    const valEl = document.getElementById(isLR?'joy-lr-val':'joy-fb-val');
+    if(valEl) valEl.textContent = '0.0';
+    update();
+    sendCmd();
+  }
+
+  joy.el.addEventListener('touchstart', e=>{
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    joy.id = t.identifier; joy.active = true;
+    joy.el.classList.add('active');
+    handle(joy.el, t.clientX, t.clientY);
+  }, {passive:false});
+
+  joy.el.addEventListener('touchmove', e=>{
+    e.preventDefault();
+    for(let t of e.changedTouches){
+      if(t.identifier === joy.id) handle(joy.el, t.clientX, t.clientY);
     }
-  }
-  if (msg.foc) {
-    for (const [k, v] of Object.entries(msg.foc)) {
-      const el = document.getElementById('foc-' + k);
-      if (el) {
-        if (el.tagName === 'SELECT') el.value = String(Math.round(v));
-        else el.value = v;
-      }
+  }, {passive:false});
+
+  joy.el.addEventListener('touchend', e=>{
+    for(let t of e.changedTouches){
+      if(t.identifier === joy.id) end();
     }
-  }
-  if (msg.ctrl) {
-    if (msg.ctrl.motor_enable !== undefined)
-      document.getElementById('sw-motor').checked = msg.ctrl.motor_enable;
-    if (msg.ctrl.balance_enable !== undefined)
-      document.getElementById('sw-balance').checked = msg.ctrl.balance_enable;
-    if (msg.ctrl.manual_target !== undefined)
-      document.getElementById('set-target').value = msg.ctrl.manual_target;
-  }
+  });
+
+  joy.el.addEventListener('mousedown', e=>{
+    joy.active = true; joy.el.classList.add('active');
+    handle(joy.el, e.clientX, e.clientY);
+  });
+  document.addEventListener('mousemove', e=>{if(joy.active) handle(joy.el, e.clientX, e.clientY);});
+  document.addEventListener('mouseup', ()=>{if(joy.active) end();});
 }
 
-// ==================== Command Senders ====================
-function sendAngle(key) {
-  const el = document.getElementById('cascade-' + key);
-  if (ws && ws.readyState === 1 && el)
-    ws.send(JSON.stringify({ type: 'set_angle', key: key, value: parseFloat(el.value) }));
-}
+setupJoy(joyFB, false);
+setupJoy(joyLR, true);
 
-function sendVelocity(key) {
-  const el = document.getElementById('cascade-' + key);
-  if (ws && ws.readyState === 1 && el)
-    ws.send(JSON.stringify({ type: 'set_velocity', key: key, value: parseFloat(el.value) }));
+let lastCmd = 0;
+function sendCmd() {
+  const now = Date.now();
+  if(now - lastCmd < 50) return;
+  lastCmd = now;
+  if(!joyFB.active && !joyLR.active) return;
+  const lin = -joyFB.y * 0.5;
+  const yaw = joyLR.x * 3.0;
+  send({type:'set_target', key:'linear_vel', value:lin});
+  send({type:'set_target', key:'yaw_rate', value:yaw});
 }
+setInterval(sendCmd, 100);
 
-function sendSafety(key) {
-  const el = document.getElementById('cascade-' + key);
-  if (ws && ws.readyState === 1 && el)
-    ws.send(JSON.stringify({ type: 'set_safety', key: key, value: parseFloat(el.value) }));
-}
-
-function sendFoc(key) {
-  const el = document.getElementById('foc-' + key);
-  if (ws && ws.readyState === 1 && el)
-    ws.send(JSON.stringify({ type: 'set_foc', key: key, value: parseFloat(el.value) }));
-}
-
-function sendCtrl(key, val) {
-  if (ws && ws.readyState === 1)
-    ws.send(JSON.stringify({ type: 'set_ctrl', key: key, value: val }));
-}
-
-function sendTarget() {
-  const el = document.getElementById('set-target');
-  if (ws && ws.readyState === 1 && el)
-    ws.send(JSON.stringify({ type: 'set_target', value: parseFloat(el.value) }));
-}
-
-function refreshParams() {
-  if (ws && ws.readyState === 1) ws.send('{"type":"get_params"}');
-}
-
-function saveParams() {
-  if (ws && ws.readyState === 1) {
-    ws.send('{"type":"save_params"}');
-    alert('参数已保存到Flash！');
-  }
-}
-
-// Auto-connect
 connect();
 </script>
-
 </body>
 </html>

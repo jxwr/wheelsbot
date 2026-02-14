@@ -300,32 +300,42 @@ class BalanceController {
       resetPid(pid_lqr_u_);
     }
 
-    // --- Yaw control (dual-loop: angle + rate) ---
-    // Integrate current heading from IMU gyro
-    heading_current_ += in.yaw_rate * in.dt;
-    // Normalize to [-pi, pi]
-    while (heading_current_ > PI_F)  heading_current_ -= 2.0f * PI_F;
-    while (heading_current_ < -PI_F) heading_current_ += 2.0f * PI_F;
-
-    // Integrate target heading from joystick command (use actual dt)
-    heading_target_ += in.target_yaw_rate * in.dt;
-    // Normalize to [-pi, pi]
-    while (heading_target_ > PI_F)  heading_target_ -= 2.0f * PI_F;
-    while (heading_target_ < -PI_F) heading_target_ += 2.0f * PI_F;
-
-    // Calculate heading error (shortest path)
-    float yaw_angle_error = heading_target_ - heading_current_;
-    if (yaw_angle_error > PI_F)  yaw_angle_error -= 2.0f * PI_F;
-    if (yaw_angle_error < -PI_F) yaw_angle_error += 2.0f * PI_F;
-
-    // Dual-loop control: angle error + rate damping
-    // Disable yaw control when wheels are lifted (no ground reference)
+    // --- Yaw control ---
+    // Only enable heading hold when there's active yaw input
+    // Otherwise just do rate damping to prevent unwanted rotation
     float yaw_output = 0.0f;
-    if (!wheel_lifted) {
+    bool has_yaw_input = (fabsf(in.target_yaw_rate) > 0.05f);
+
+    if (has_yaw_input) {
+      // Integrate target heading from joystick command
+      heading_target_ += in.target_yaw_rate * in.dt;
+      while (heading_target_ > PI_F)  heading_target_ -= 2.0f * PI_F;
+      while (heading_target_ < -PI_F) heading_target_ += 2.0f * PI_F;
+      // Reset current heading to match target when starting yaw input
+      if (!had_yaw_input_) {
+        heading_current_ = heading_target_;
+      }
+      // Integrate current heading
+      heading_current_ += in.yaw_rate * in.dt;
+      while (heading_current_ > PI_F)  heading_current_ -= 2.0f * PI_F;
+      while (heading_current_ < -PI_F) heading_current_ += 2.0f * PI_F;
+      // Heading error
+      float yaw_angle_error = heading_target_ - heading_current_;
+      if (yaw_angle_error > PI_F)  yaw_angle_error -= 2.0f * PI_F;
+      if (yaw_angle_error < -PI_F) yaw_angle_error += 2.0f * PI_F;
+      // Dual-loop: angle hold + rate damping
       float yaw_angle_ctrl = pid_yaw_angle_(yaw_angle_error);
-      float yaw_gyro_ctrl  = pid_yaw_gyro_(in.yaw_rate);
+      float yaw_gyro_ctrl = -params_.yaw_gyro_kp * in.yaw_rate;  // direct damping
       yaw_output = yaw_angle_ctrl + yaw_gyro_ctrl;
+    } else {
+      // No yaw input: just rate damping around zero (prevent drift)
+      yaw_output = -params_.yaw_gyro_kp * in.yaw_rate;
+      // Reset heading integrators when not in use
+      heading_current_ = 0;
+      heading_target_ = 0;
+      resetPid(pid_yaw_angle_);
     }
+    had_yaw_input_ = has_yaw_input;
 
     // --- Differential output ---
     float left_cmd  = -0.5f * (lqr_u + yaw_output);
@@ -379,6 +389,7 @@ class BalanceController {
     uncontrollable_ = 0;
     move_stop_flag_ = 0;
     had_joystick_input_ = false;
+    had_yaw_input_ = false;
     debug_ = {};
   }
 
@@ -474,6 +485,7 @@ class BalanceController {
   int uncontrollable_ = 0;
   int move_stop_flag_ = 0;
   bool had_joystick_input_ = false;
+  bool had_yaw_input_ = false;
 
   // Debug (updated each step)
   BalanceDebug debug_ = {};
