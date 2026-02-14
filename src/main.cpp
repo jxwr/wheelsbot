@@ -86,11 +86,12 @@ static void balanceTask(void* arg) {
     lastUs = nowUs;
 
     // Build BalanceInput from shared state
-    // Note: wL/wR negated to match physical direction (positive = forward)
-    float wL = ctx->wheel_state.valid ? -ctx->wheel_state.wL : 0.0f;
-    float wR = ctx->wheel_state.valid ? -ctx->wheel_state.wR : 0.0f;
-    float xL = ctx->wheel_state.valid ? -ctx->wheel_state.xL : 0.0f;
-    float xR = ctx->wheel_state.valid ? -ctx->wheel_state.xR : 0.0f;
+    // Note: right_enc already inverted in adapter layer (app_context.h:61)
+    // Do NOT negate here to avoid double-inversion
+    float wL = ctx->wheel_state.valid ? ctx->wheel_state.wL : 0.0f;
+    float wR = ctx->wheel_state.valid ? ctx->wheel_state.wR : 0.0f;
+    float xL = ctx->wheel_state.valid ? ctx->wheel_state.xL : 0.0f;
+    float xR = ctx->wheel_state.valid ? ctx->wheel_state.xR : 0.0f;
 
     BalanceInput bin;
     // Raw IMU data
