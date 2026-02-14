@@ -10,7 +10,7 @@
 #include "hardware/imu_mpu6050_hal.h"
 #include "hardware/simplefoc_sensor_adapter.h"
 #include "hardware/hardware_manager.h"
-#include "control/cascade_controller.h"
+#include "control/balance_controller.h"
 
 using namespace wheelsbot::hardware;
 using namespace wheelsbot::control;
@@ -39,7 +39,7 @@ struct AppContext {
   HardwareManager hw;
 
   // --- Control ---
-  CascadeController cascade;
+  BalanceController balance;
 
   // --- I2C bus mutex (protects multi-step Wire transactions) ---
   SemaphoreHandle_t wire_mutex = nullptr;
@@ -50,12 +50,9 @@ struct AppContext {
   WheelShared wheel_state{};
   CommandShared cmd_state{};
 
-  // --- Navigation state (heading only, no position loop) ---
-  // Updated by balanceTask, read by wifiDebugTask
-  volatile float heading = 0.0f;         // Heading angle (rad)
+  // --- Joystick command state ---
   volatile float target_linear_vel = 0.0f; // Target linear velocity from joystick (m/s)
-  volatile float target_yaw_rate = 0.0f; // Target yaw rate for differential drive (rad/s)
-  volatile bool remote_mode = false;     // true = joystick control, false = hold position
+  volatile float target_yaw_rate = 0.0f;   // Target yaw rate for differential drive (rad/s)
 
   // Explicit constructor — only call after Wire.begin()
   AppContext(TwoWire& wire_imu, TwoWire& /*wire2 — reserved for future use*/)

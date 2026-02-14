@@ -2,20 +2,20 @@
 #include <Wire.h>
 #include <SimpleFOC.h>
 #include <ArduinoOTA.h>
+#include <LittleFS.h>
 
 #include "pins.h"
 #include "app_context.h"
 #include "wifi_debug.h"
 
+// Forward declaration
+void handleSerialCmd(const char* cmd);
+
+// Global context pointer for serial commands
+static AppContext* g_ctx = nullptr;
+
 using namespace wheelsbot::hardware;
 using namespace wheelsbot::control;
-
-// ============================================================
-// Helper functions
-// ============================================================
-static inline float clamp(float x, float lo, float hi) {
-  return (x < lo) ? lo : ((x > hi) ? hi : x);
-}
 
 // ============================================================
 // Tasks — all receive AppContext* via pvParameter
@@ -70,28 +70,14 @@ static void imuTask(void* arg) {
   }
 }
 
-// balanceTask: 200Hz cascade control — Position → Velocity → Angle + Yaw mixing
+// balanceTask: 200Hz LQR balance control
 static void balanceTask(void* arg) {
   auto* ctx = static_cast<AppContext*>(arg);
   const TickType_t period = pdMS_TO_TICKS(5);
   TickType_t last = xTaskGetTickCount();
 
-  ctx->cascade.reset();
+  ctx->balance.reset();
   uint32_t lastUs = micros();
-
-  // Controller tuning (position loop disabled)
-  // === Fixed: Keep cascade control but with stronger angle loop ===
-  ctx->cascade.angleLoop().setGains(20.0f, 0.0f, 0.5f);  // Kp=20 for more torque, Kd=0.5 for damping
-  ctx->cascade.velocityLoop().setGains(0.03f, 0.0f, 0.0f);  // Pure P, no integral windup
-  ctx->cascade.velocityLoop().setMaxTiltCommand(0.35f);  // Increased: ~20 degrees max tilt
-
-  // === Scheme 3: Direct drive mode - velocity command maps directly to voltage ===
-  // Like steering: target speed -> direct voltage (open-loop), angle loop just corrects balance
-  // This bypasses the "tilt to accelerate" limitation
-  constexpr float VEL_FF_GAIN = 5.0f;  // V/(m/s), much higher for direct drive feel
-
-  // Navigation state
-  float heading = 0.0f;       // Integrated heading (rad)
 
   while (true) {
     uint32_t nowUs = micros();
@@ -99,92 +85,55 @@ static void balanceTask(void* arg) {
     if (!(dt > 0.f && dt < 0.1f)) dt = 0.005f;
     lastUs = nowUs;
 
-    // Get sensor data
+    // Build BalanceInput from shared state
     // Note: wL/wR negated to match physical direction (positive = forward)
     float wL = ctx->wheel_state.valid ? -ctx->wheel_state.wL : 0.0f;
     float wR = ctx->wheel_state.valid ? -ctx->wheel_state.wR : 0.0f;
-    float wheel_vel = (wL + wR) * 0.5f;  // Average wheel velocity (rad/s)
-    float gyro_z = ctx->imu_state.valid ? ctx->imu_state.gz : 0.0f;  // Yaw rate
+    float xL = ctx->wheel_state.valid ? -ctx->wheel_state.xL : 0.0f;
+    float xR = ctx->wheel_state.valid ? -ctx->wheel_state.xR : 0.0f;
 
-    // Integrate heading
-    heading += gyro_z * dt;
-    // Normalize heading to [-pi, pi]
-    constexpr float PIf = 3.14159265358979f;
-    while (heading > PIf) heading -= 2 * PIf;
-    while (heading < -PIf) heading += 2 * PIf;
+    BalanceInput bin;
+    // Raw IMU data
+    bin.ax = ctx->imu_state.valid ? ctx->imu_state.ax : 0.0f;
+    bin.ay = ctx->imu_state.valid ? ctx->imu_state.ay : 0.0f;
+    bin.az = ctx->imu_state.valid ? ctx->imu_state.az : 0.0f;
+    bin.gx = ctx->imu_state.valid ? ctx->imu_state.gx : 0.0f;
+    bin.gy = ctx->imu_state.valid ? ctx->imu_state.gy : 0.0f;
+    bin.gz = ctx->imu_state.valid ? ctx->imu_state.gz : 0.0f;
 
-    // Update shared state for telemetry (heading only, no position loop)
-    ctx->heading = heading;
+    // Fused angles
+    bin.pitch          = ctx->imu_state.valid
+        ? (ctx->imu_state.pitch_deg * (3.14159265358979f / 180.0f)) : 0.0f;
+    bin.pitch_rate     = ctx->imu_state.valid ? ctx->imu_state.gy : 0.0f;
+    bin.roll           = ctx->imu_state.valid
+        ? (ctx->imu_state.roll_deg * (3.14159265358979f / 180.0f)) : 0.0f;
+    bin.yaw_rate       = ctx->imu_state.valid ? ctx->imu_state.gz : 0.0f;
 
-    // Determine target based on mode
-    // Note: Position loop disabled. Both modes use VELOCITY_MODE with direct velocity control.
-    // - Hold mode: velocity_reference = 0 (just balance, don't try to move)
-    // - Remote mode: velocity_reference from joystick
-    float velocity_reference = 0.0f;      // Default: no velocity command
-    float target_yaw_rate = ctx->target_yaw_rate;
+    bin.wheel_position = (xL + xR) * 0.5f;
+    bin.wheel_velocity = (wL + wR) * 0.5f;
+    bin.wL             = wL;
+    bin.wR             = wR;
+    bin.xL             = xL;
+    bin.xR             = xR;
 
-    if (ctx->remote_mode) {
-      // Remote mode: use joystick velocity command
-      velocity_reference = ctx->target_linear_vel;
+    bin.target_velocity = ctx->target_linear_vel;
+    bin.target_yaw_rate = ctx->target_yaw_rate;
+    bin.dt              = dt;
+    bin.enabled         = ctx->cmd_state.balance_enable;
+    bin.sensors_valid   = ctx->imu_state.valid && ctx->wheel_state.valid;
+
+    BalanceOutput bout;
+    ctx->balance.step(bin, bout);
+
+    if (bout.valid) {
+      ctx->bal_state.left_target  = bout.left_motor;
+      ctx->bal_state.right_target = bout.right_motor;
+      ctx->bal_state.ok = true;
     } else {
-      // Hold mode: just balance, no velocity command (position loop disabled)
-      velocity_reference = 0.0f;
-      target_yaw_rate = 0.0f;
+      ctx->bal_state.left_target  = 0;
+      ctx->bal_state.right_target = 0;
+      ctx->bal_state.ok = false;
     }
-
-    // Prepare cascade input
-    CascadeInput cin;
-    // Convert linear velocity (m/s) to wheel velocity (rad/s) for cascade
-    cin.velocity_reference = velocity_reference / WHEEL_RADIUS_M;  // m/s -> rad/s
-    cin.velocity_measurement = wheel_vel;  // already in rad/s
-    cin.pitch_measurement = ctx->imu_state.valid
-        ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;
-    cin.pitch_rate = ctx->imu_state.valid ? ctx->imu_state.gy : 0.0f;
-    cin.dt = dt;
-    cin.timestamp_ms = millis();
-    cin.enabled = ctx->cmd_state.balance_enable;
-    cin.sensors_valid = ctx->imu_state.valid && ctx->wheel_state.valid;
-
-    // === Direct Drive Mode: Angle loop for balance + open-loop voltage for speed ===
-    // This bypasses the velocity->tilt cascade, giving direct torque like steering
-    float pitch_rad = ctx->imu_state.valid
-        ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;
-
-    // Angle loop: always target upright (0 rad), ignore velocity loop
-    // This produces restoring torque to stay vertical
-    float angle_cmd = -20.0f * pitch_rad - 0.5f * ctx->imu_state.gy;  // Kp=20, Kd=0.5
-    angle_cmd = clamp(angle_cmd, -10.0f, 10.0f);
-
-    // Direct velocity drive: target speed -> voltage (open-loop, no tilt waiting)
-    float velocity_cmd = velocity_reference * VEL_FF_GAIN;
-    velocity_cmd = clamp(velocity_cmd, -10.0f, 10.0f);
-
-    // Combine: angle keeps us upright, velocity drives us forward
-    float longitudinal_cmd = angle_cmd + velocity_cmd;
-    longitudinal_cmd = clamp(longitudinal_cmd, -11.0f, 11.0f);  // Slight headroom for combined
-
-    // Compute yaw differential command
-    // Map target yaw rate directly to wheel speed differential (open-loop for responsiveness)
-    float yaw_diff = 0.0f;
-    if (fabsf(target_yaw_rate) > 0.05f) {  // Deadband
-      // Convert yaw rate to wheel speed differential with reduced gain for smoother turning
-      // Formula: omega_yaw * track_width / (2 * wheel_radius) * gain
-      constexpr float YAW_GAIN = 0.5f;  // Reduce turning intensity
-      yaw_diff = target_yaw_rate * TRACK_WIDTH_M / (2.0f * WHEEL_RADIUS_M) * YAW_GAIN;
-      // Limit differential to prevent motor saturation (adapted for feedforward)
-      float max_diff = fabsf(longitudinal_cmd) > 6.0f ? 3.0f : (9.0f - fabsf(longitudinal_cmd));
-      yaw_diff = clamp(yaw_diff, -max_diff, max_diff);
-    }
-
-    // Apply differential to get final wheel commands
-    // When going straight: left = right = longitudinal_cmd
-    // When turning: one wheel speeds up, other slows down
-    float left_cmd = longitudinal_cmd + yaw_diff;
-    float right_cmd = longitudinal_cmd - yaw_diff;
-
-    ctx->bal_state.left_target = left_cmd;
-    ctx->bal_state.right_target = right_cmd;
-    ctx->bal_state.ok = true;
 
     vTaskDelayUntil(&last, period);
   }
@@ -395,6 +344,69 @@ static void scanBus(TwoWire& w, const char* name) {
 // Wire2 declared at file scope so focTask can extern it
 TwoWire Wire2(1);
 
+// ============================================================
+// Parameter persistence helpers (must be before setup)
+// ============================================================
+static bool loadBalanceParams(BalanceController::Params& p) {
+  if (!LittleFS.exists("/params/balance.json")) {
+    return false;
+  }
+  File f = LittleFS.open("/params/balance.json", "r");
+  if (!f) return false;
+  char buf[512];
+  size_t n = f.read((uint8_t*)buf, sizeof(buf) - 1);
+  buf[n] = '\0';
+  f.close();
+  int matched = sscanf(buf,
+    "{\"angle_kp\":%f,\"gyro_kp\":%f,"
+    "\"distance_kp\":%f,\"speed_kp\":%f,"
+    "\"yaw_angle_kp\":%f,\"yaw_gyro_kp\":%f,"
+    "\"lqr_u_kp\":%f,\"lqr_u_ki\":%f,"
+    "\"zeropoint_kp\":%f,"
+    "\"lpf_target_vel_tf\":%f,\"lpf_zeropoint_tf\":%f,"
+    "\"max_tilt_deg\":%f,\"pitch_offset\":%f,"
+    "\"pid_limit\":%f,"
+    "\"lift_accel_thresh\":%f,\"lift_vel_thresh\":%f}",
+    &p.angle_kp, &p.gyro_kp,
+    &p.distance_kp, &p.speed_kp,
+    &p.yaw_angle_kp, &p.yaw_gyro_kp,
+    &p.lqr_u_kp, &p.lqr_u_ki,
+    &p.zeropoint_kp,
+    &p.lpf_target_vel_tf, &p.lpf_zeropoint_tf,
+    &p.max_tilt_deg, &p.pitch_offset,
+    &p.pid_limit,
+    &p.lift_accel_thresh, &p.lift_vel_thresh);
+  return matched >= 14;
+}
+
+static bool saveBalanceParams(BalanceController::Params& p) {
+  if (!LittleFS.exists("/params")) {
+    LittleFS.mkdir("/params");
+  }
+  File f = LittleFS.open("/params/balance.json", "w");
+  if (!f) return false;
+  f.printf("{\"angle_kp\":%.4f,\"gyro_kp\":%.4f,"
+           "\"distance_kp\":%.4f,\"speed_kp\":%.4f,"
+           "\"yaw_angle_kp\":%.4f,\"yaw_gyro_kp\":%.4f,"
+           "\"lqr_u_kp\":%.4f,\"lqr_u_ki\":%.4f,"
+           "\"zeropoint_kp\":%.6f,"
+           "\"lpf_target_vel_tf\":%.3f,\"lpf_zeropoint_tf\":%.3f,"
+           "\"max_tilt_deg\":%.2f,\"pitch_offset\":%.4f,"
+           "\"pid_limit\":%.2f,"
+           "\"lift_accel_thresh\":%.2f,\"lift_vel_thresh\":%.2f}",
+           p.angle_kp, p.gyro_kp,
+           p.distance_kp, p.speed_kp,
+           p.yaw_angle_kp, p.yaw_gyro_kp,
+           p.lqr_u_kp, p.lqr_u_ki,
+           p.zeropoint_kp,
+           p.lpf_target_vel_tf, p.lpf_zeropoint_tf,
+           p.max_tilt_deg, p.pitch_offset,
+           p.pid_limit,
+           p.lift_accel_thresh, p.lift_vel_thresh);
+  f.close();
+  return true;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -417,6 +429,7 @@ void setup() {
 
   // Construct AppContext — all hardware, control, and shared state
   static AppContext ctx(Wire, Wire2);
+  g_ctx = &ctx;
 
   // Initialize IMU via HAL
   ctx.hw.initImu();
@@ -448,13 +461,13 @@ void setup() {
   ArduinoOTA.begin();
   Serial.println("OTA Ready - IP: " + WiFi.softAPIP().toString());
 
-  // Load cascade controller parameters from flash (if exists)
-  CascadeController::Params params;
-  if (loadCascadeParams(params)) {
-    ctx.cascade.setParams(params);
-    Serial.println("Loaded cascade params from flash");
+  // Load balance controller parameters from flash (if exists)
+  BalanceController::Params params;
+  if (loadBalanceParams(params)) {
+    g_ctx->balance.setParams(params);
+    Serial.println("Loaded balance params from flash");
   } else {
-    Serial.println("Using default cascade params (flash unavailable)");
+    Serial.println("Using default balance params (flash unavailable)");
   }
 
   // Start tasks — core assignment:
@@ -469,8 +482,175 @@ void setup() {
   Serial.println("Tasks started");
 }
 
+// Forward declaration
+void handleSerialCmd(const char* cmd);
+
 void loop() {
   // Handle OTA updates
   ArduinoOTA.handle();
-  vTaskDelay(pdMS_TO_TICKS(100));
+
+  // Handle serial commands
+  static char cmdbuf[64];
+  static int cmdlen = 0;
+  while (Serial.available() && cmdlen < 63) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (cmdlen > 0) {
+        cmdbuf[cmdlen] = '\0';
+        handleSerialCmd(cmdbuf);
+        cmdlen = 0;
+      }
+    } else {
+      cmdbuf[cmdlen++] = c;
+    }
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(10));
+}
+
+// Serial command handler
+void handleSerialCmd(const char* cmd) {
+  // Format: <key>=<value> or <key>?
+  // Examples:
+  //   angle_kp=6.5      -> set angle_kp to 6.5
+  //   angle_kp?         -> query angle_kp
+  //   dump              -> dump all params
+  //   telem             -> show current telemetry
+  //   help              -> show help
+
+  if (strlen(cmd) == 0) return;
+
+  if (strcmp(cmd, "help") == 0) {
+    Serial.println("\n=== Serial Commands ===");
+    Serial.println("angle_kp=6.5    - set parameter");
+    Serial.println("angle_kp?       - query parameter");
+    Serial.println("dump            - show all parameters");
+    Serial.println("telem           - show current telemetry");
+    Serial.println("save            - save params to flash");
+    Serial.println("reset           - reset controller");
+    Serial.println("");
+    Serial.println("Params: angle_kp, gyro_kp, distance_kp, speed_kp,");
+    Serial.println("         yaw_angle_kp, yaw_gyro_kp, lqr_u_kp, lqr_u_ki,");
+    Serial.println("         max_tilt_deg, pitch_offset, pid_limit");
+    return;
+  }
+
+  if (strcmp(cmd, "dump") == 0) {
+    BalanceController::Params p;
+    g_ctx->balance.getParams(p);
+    Serial.println("\n=== Current Params ===");
+    Serial.printf("angle_kp=%.2f\n", p.angle_kp);
+    Serial.printf("gyro_kp=%.4f\n", p.gyro_kp);
+    Serial.printf("distance_kp=%.2f\n", p.distance_kp);
+    Serial.printf("speed_kp=%.4f\n", p.speed_kp);
+    Serial.printf("yaw_angle_kp=%.2f\n", p.yaw_angle_kp);
+    Serial.printf("yaw_gyro_kp=%.4f\n", p.yaw_gyro_kp);
+    Serial.printf("lqr_u_kp=%.2f\n", p.lqr_u_kp);
+    Serial.printf("lqr_u_ki=%.2f\n", p.lqr_u_ki);
+    Serial.printf("max_tilt_deg=%.1f\n", p.max_tilt_deg);
+    Serial.printf("pitch_offset=%.2f\n", p.pitch_offset);
+    Serial.printf("pid_limit=%.2f\n", p.pid_limit);
+    return;
+  }
+
+  if (strcmp(cmd, "telem") == 0) {
+    BalanceDebug dbg;
+    g_ctx->balance.getDebug(dbg);
+    Serial.printf("\nPITCH:%.2fdeg ROLL:%.2fdeg YAW:%.2fdeg/s\n",
+      dbg.pitch*180/PI, dbg.roll*180/PI, dbg.yaw_rate*180/PI);
+    Serial.printf("wL:%.1f wR:%.1f rad/s\n", dbg.wL, dbg.wR);
+    Serial.printf("LM:%.2fV RM:%.2fV\n", dbg.left_motor, dbg.right_motor);
+    Serial.printf("angle:%.2f gyro:%.2f dist:%.2f spd:%.2f\n",
+      dbg.angle_contribution, dbg.gyro_contribution,
+      dbg.distance_contribution, dbg.speed_contribution);
+    Serial.printf("state:%s fault:%u lifted:%d\n",
+      dbg.running?"RUN":"STOP", (unsigned)dbg.fault_flags, dbg.wheel_lifted);
+    return;
+  }
+
+  if (strcmp(cmd, "save") == 0) {
+    Serial.println("Use web UI to save params, or send via WebSocket");
+    Serial.println("WS: {\"type\":\"save_params\"}");
+    return;
+  }
+
+  if (strcmp(cmd, "reset") == 0) {
+    g_ctx->balance.reset();
+    Serial.println("Controller reset");
+    return;
+  }
+
+  // Parse key=value or key?
+  char* eq = strchr((char*)cmd, '=');
+  char* q = strchr((char*)cmd, '?');
+
+  char key[32] = {0};
+  float value = 0;
+  bool isQuery = false;
+
+  // Handle key? query
+  if (q && (!eq || q < eq)) {
+    // key?
+    int len = q - cmd;
+    if (len > 0 && len < 31) {
+      memcpy(key, cmd, len);
+      key[len] = '\0';
+    }
+    isQuery = true;
+  }
+  // Handle key=value
+  else if (eq) {
+    int len = eq - cmd;
+    if (len > 0 && len < 31) {
+      memcpy(key, cmd, len);
+      key[len] = '\0';
+    }
+    value = atof(eq + 1);
+  }
+  else {
+    Serial.println("Unknown command. Type 'help' for available commands.");
+    return;
+  }
+
+  // Set or get parameter
+  BalanceController::Params p;
+  g_ctx->balance.getParams(p);
+
+  bool found = false;
+
+  if (strcmp(key, "angle_kp") == 0) { p.angle_kp = isQuery ? p.angle_kp : value; found = true; }
+  else if (strcmp(key, "gyro_kp") == 0) { p.gyro_kp = isQuery ? p.gyro_kp : value; found = true; }
+  else if (strcmp(key, "distance_kp") == 0) { p.distance_kp = isQuery ? p.distance_kp : value; found = true; }
+  else if (strcmp(key, "speed_kp") == 0) { p.speed_kp = isQuery ? p.speed_kp : value; found = true; }
+  else if (strcmp(key, "yaw_angle_kp") == 0) { p.yaw_angle_kp = isQuery ? p.yaw_angle_kp : value; found = true; }
+  else if (strcmp(key, "yaw_gyro_kp") == 0) { p.yaw_gyro_kp = isQuery ? p.yaw_gyro_kp : value; found = true; }
+  else if (strcmp(key, "lqr_u_kp") == 0) { p.lqr_u_kp = isQuery ? p.lqr_u_kp : value; found = true; }
+  else if (strcmp(key, "lqr_u_ki") == 0) { p.lqr_u_ki = isQuery ? p.lqr_u_ki : value; found = true; }
+  else if (strcmp(key, "max_tilt_deg") == 0) { p.max_tilt_deg = isQuery ? p.max_tilt_deg : value; found = true; }
+  else if (strcmp(key, "pitch_offset") == 0) { p.pitch_offset = isQuery ? p.pitch_offset : value; found = true; }
+  else if (strcmp(key, "pid_limit") == 0) { p.pid_limit = isQuery ? p.pid_limit : value; found = true; }
+
+  if (found) {
+    if (!isQuery) {
+      g_ctx->balance.setParams(p);
+      Serial.printf("Set %s = %.4f\n", key, value);
+    } else {
+      // Query: print the actual value that was found
+      float val = 0;
+      if (strcmp(key, "angle_kp") == 0) val = p.angle_kp;
+      else if (strcmp(key, "gyro_kp") == 0) val = p.gyro_kp;
+      else if (strcmp(key, "distance_kp") == 0) val = p.distance_kp;
+      else if (strcmp(key, "speed_kp") == 0) val = p.speed_kp;
+      else if (strcmp(key, "yaw_angle_kp") == 0) val = p.yaw_angle_kp;
+      else if (strcmp(key, "yaw_gyro_kp") == 0) val = p.yaw_gyro_kp;
+      else if (strcmp(key, "lqr_u_kp") == 0) val = p.lqr_u_kp;
+      else if (strcmp(key, "lqr_u_ki") == 0) val = p.lqr_u_ki;
+      else if (strcmp(key, "max_tilt_deg") == 0) val = p.max_tilt_deg;
+      else if (strcmp(key, "pitch_offset") == 0) val = p.pitch_offset;
+      else if (strcmp(key, "pid_limit") == 0) val = p.pid_limit;
+      Serial.printf("%s=%.4f\n", key, val);
+    }
+  } else {
+    Serial.printf("Unknown param: %s (key len=%d)\n", key, strlen(key));
+  }
 }
