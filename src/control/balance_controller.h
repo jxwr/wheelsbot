@@ -293,9 +293,9 @@ class BalanceController {
     if (fabsf(lqr_u) < 5.0f && !has_joystick_input
         && fabsf(speed) < 1.0f && !wheel_lifted) {
       lqr_u = pid_lqr_u_(lqr_u);
-      // CoG adaptation: slowly adjust pitch offset based on distance error
-      // Forward drift (distance_ctrl > 0) -> increase pitch_offset -> lean back
-      params_.pitch_offset += pid_zeropoint_(lpf_zeropoint_(distance_ctrl));
+      // CoG adaptation: DISABLED due to unit mismatch bug
+      // TODO: Fix unit conversion (distance_ctrl is voltage, pitch_offset is degrees)
+      // params_.pitch_offset += pid_zeropoint_(lpf_zeropoint_(distance_ctrl));
     } else {
       resetPid(pid_lqr_u_);
     }
