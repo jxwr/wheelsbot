@@ -590,8 +590,19 @@ void handleSerialCmd(const char* cmd) {
   }
 
   if (strcmp(cmd, "save") == 0) {
-    Serial.println("Use web UI to save params, or send via WebSocket");
-    Serial.println("WS: {\"type\":\"save_params\"}");
+    // Get current parameters from balance controller
+    BalanceController::Params p;
+    g_ctx->balance.getParams(p);
+
+    // Save to flash
+    bool ok = saveBalanceParams(p);
+
+    if (ok) {
+      Serial.println("Parameters saved to flash successfully");
+      Serial.println("File: /params/balance.json");
+    } else {
+      Serial.println("ERROR: Failed to save parameters to flash");
+    }
     return;
   }
 

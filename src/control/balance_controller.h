@@ -117,19 +117,19 @@ class BalanceController {
   struct Params {
     // Angle PID (primary restoring torque)
     // Reduced for lightweight high-CoG robot to avoid over-reaction
-    float angle_kp = 5.0f;
+    float angle_kp = 2.5f;
 
     // Gyro PID (pitch rate damping)
-    // CRITICAL: Doubled for lightweight high-CoG robot to suppress oscillation
-    float gyro_kp = 0.12f;
+    // Increased for hard tires to suppress stick-slip oscillation
+    float gyro_kp = 0.40f;
 
     // Distance PID (position hold / anti-drift)
-    // Reduced for lightweight robot (lower inertia)
-    float distance_kp = 0.35f;
+    // Tuned for hard off-road tires
+    float distance_kp = 0.55f;
 
     // Speed PID (velocity tracking)
-    // Reduced for lightweight robot (faster response)
-    float speed_kp = 0.35f;
+    // Tuned for hard tires - helps stabilize stick-slip
+    float speed_kp = 0.45f;
 
     // Yaw angle PID (heading hold)
     float yaw_angle_kp = 1.0f;
@@ -138,9 +138,9 @@ class BalanceController {
     float yaw_gyro_kp = 0.04f;
 
     // LQR output integral compensation (static friction)
-    // Reduced Ki for lightweight robot (lower static friction)
-    float lqr_u_kp = 1.0f;
-    float lqr_u_ki = 10.0f;
+    // CRITICAL: Reduced for hard tires to prevent stick-slip oscillation
+    float lqr_u_kp = 0.5f;
+    float lqr_u_ki = 5.0f;
 
     // Zero-point adaptation (CoG self-adjust)
     float zeropoint_kp = 0.01f;
