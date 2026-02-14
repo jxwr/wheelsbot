@@ -80,9 +80,15 @@ static void balanceTask(void* arg) {
   uint32_t lastUs = micros();
 
   // Controller tuning (position loop disabled)
-  ctx->cascade.angleLoop().setGains(8.0f, 0.0f, 0.4f);
+  // === Fixed: Keep cascade control but with stronger angle loop ===
+  ctx->cascade.angleLoop().setGains(20.0f, 0.0f, 0.5f);  // Kp=20 for more torque, Kd=0.5 for damping
   ctx->cascade.velocityLoop().setGains(0.03f, 0.0f, 0.0f);  // Pure P, no integral windup
-  ctx->cascade.velocityLoop().setMaxTiltCommand(0.14f);  // Default max tilt for velocity loop
+  ctx->cascade.velocityLoop().setMaxTiltCommand(0.35f);  // Increased: ~20 degrees max tilt
+
+  // === Scheme 3: Direct drive mode - velocity command maps directly to voltage ===
+  // Like steering: target speed -> direct voltage (open-loop), angle loop just corrects balance
+  // This bypasses the "tilt to accelerate" limitation
+  constexpr float VEL_FF_GAIN = 5.0f;  // V/(m/s), much higher for direct drive feel
 
   // Navigation state
   float heading = 0.0f;       // Integrated heading (rad)
@@ -139,40 +145,46 @@ static void balanceTask(void* arg) {
     cin.enabled = ctx->cmd_state.balance_enable;
     cin.sensors_valid = ctx->imu_state.valid && ctx->wheel_state.valid;
 
-    CascadeOutput cout;
-    ctx->cascade.step(cin, cout);
+    // === Direct Drive Mode: Angle loop for balance + open-loop voltage for speed ===
+    // This bypasses the velocity->tilt cascade, giving direct torque like steering
+    float pitch_rad = ctx->imu_state.valid
+        ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;
 
-    if (cout.valid && ctx->cascade.isRunning()) {
-      // Extract longitudinal command from cascade
-      float longitudinal_cmd = cout.left_motor;  // Same for both wheels
+    // Angle loop: always target upright (0 rad), ignore velocity loop
+    // This produces restoring torque to stay vertical
+    float angle_cmd = -20.0f * pitch_rad - 0.5f * ctx->imu_state.gy;  // Kp=20, Kd=0.5
+    angle_cmd = clamp(angle_cmd, -10.0f, 10.0f);
 
-      // Compute yaw differential command
-      // Map target yaw rate directly to wheel speed differential (open-loop for responsiveness)
-      float yaw_diff = 0.0f;
-      if (fabsf(target_yaw_rate) > 0.05f) {  // Deadband
-        // Convert yaw rate to wheel speed differential with reduced gain for smoother turning
-        // Formula: omega_yaw * track_width / (2 * wheel_radius) * gain
-        constexpr float YAW_GAIN = 0.5f;  // Reduce turning intensity
-        yaw_diff = target_yaw_rate * TRACK_WIDTH_M / (2.0f * WHEEL_RADIUS_M) * YAW_GAIN;
-        // Limit differential to prevent motor saturation
-        float max_diff = fabsf(longitudinal_cmd) > 3.0f ? 3.0f : (6.0f - fabsf(longitudinal_cmd));
-        yaw_diff = clamp(yaw_diff, -max_diff, max_diff);
-      }
+    // Direct velocity drive: target speed -> voltage (open-loop, no tilt waiting)
+    float velocity_cmd = velocity_reference * VEL_FF_GAIN;
+    velocity_cmd = clamp(velocity_cmd, -10.0f, 10.0f);
 
-      // Apply differential to get final wheel commands
-      // When going straight: left = right = longitudinal_cmd
-      // When turning: one wheel speeds up, other slows down
-      float left_cmd = longitudinal_cmd + yaw_diff;
-      float right_cmd = longitudinal_cmd - yaw_diff;
+    // Combine: angle keeps us upright, velocity drives us forward
+    float longitudinal_cmd = angle_cmd + velocity_cmd;
+    longitudinal_cmd = clamp(longitudinal_cmd, -11.0f, 11.0f);  // Slight headroom for combined
 
-      ctx->bal_state.left_target = left_cmd;
-      ctx->bal_state.right_target = right_cmd;
-      ctx->bal_state.ok = true;
-    } else {
-      ctx->bal_state.left_target = 0.0f;
-      ctx->bal_state.right_target = 0.0f;
-      ctx->bal_state.ok = false;
+    // Compute yaw differential command
+    // Map target yaw rate directly to wheel speed differential (open-loop for responsiveness)
+    float yaw_diff = 0.0f;
+    if (fabsf(target_yaw_rate) > 0.05f) {  // Deadband
+      // Convert yaw rate to wheel speed differential with reduced gain for smoother turning
+      // Formula: omega_yaw * track_width / (2 * wheel_radius) * gain
+      constexpr float YAW_GAIN = 0.5f;  // Reduce turning intensity
+      yaw_diff = target_yaw_rate * TRACK_WIDTH_M / (2.0f * WHEEL_RADIUS_M) * YAW_GAIN;
+      // Limit differential to prevent motor saturation (adapted for feedforward)
+      float max_diff = fabsf(longitudinal_cmd) > 6.0f ? 3.0f : (9.0f - fabsf(longitudinal_cmd));
+      yaw_diff = clamp(yaw_diff, -max_diff, max_diff);
     }
+
+    // Apply differential to get final wheel commands
+    // When going straight: left = right = longitudinal_cmd
+    // When turning: one wheel speeds up, other slows down
+    float left_cmd = longitudinal_cmd + yaw_diff;
+    float right_cmd = longitudinal_cmd - yaw_diff;
+
+    ctx->bal_state.left_target = left_cmd;
+    ctx->bal_state.right_target = right_cmd;
+    ctx->bal_state.ok = true;
 
     vTaskDelayUntil(&last, period);
   }
