@@ -525,7 +525,8 @@ void handleSerialCmd(const char* cmd) {
     Serial.println("angle_kp=6.5    - set parameter");
     Serial.println("angle_kp?       - query parameter");
     Serial.println("dump            - show all parameters");
-    Serial.println("telem           - show current telemetry");
+    Serial.println("telem           - show current telemetry (detailed)");
+    Serial.println("watch           - continuous telemetry (1Hz, compact)");
     Serial.println("save            - save params to flash");
     Serial.println("reset           - reset controller");
     Serial.println("");
@@ -556,15 +557,34 @@ void handleSerialCmd(const char* cmd) {
   if (strcmp(cmd, "telem") == 0) {
     BalanceDebug dbg;
     g_ctx->balance.getDebug(dbg);
-    Serial.printf("\nPITCH:%.2fdeg ROLL:%.2fdeg YAW:%.2fdeg/s\n",
+    Serial.println("\n=== Telemetry ===");
+
+    // IMU angles
+    Serial.printf("PITCH:%.2fdeg  ROLL:%.2fdeg  YAW_RATE:%.2fdeg/s\n",
       dbg.pitch*180/PI, dbg.roll*180/PI, dbg.yaw_rate*180/PI);
-    Serial.printf("wL:%.1f wR:%.1f rad/s\n", dbg.wL, dbg.wR);
-    Serial.printf("LM:%.2fV RM:%.2fV\n", dbg.left_motor, dbg.right_motor);
-    Serial.printf("angle:%.2f gyro:%.2f dist:%.2f spd:%.2f\n",
+    Serial.printf("PITCH_RATE:%.2frad/s  PITCH_OFFSET:%.2fdeg\n",
+      dbg.pitch_rate, dbg.pitch_offset);
+
+    // Wheel data
+    Serial.printf("wL:%.2f  wR:%.2f rad/s  |  xL:%.1f  xR:%.1f rad\n",
+      dbg.wL, dbg.wR, dbg.xL, dbg.xR);
+    Serial.printf("DIST_ZERO:%.2f rad\n", dbg.distance_zeropoint);
+
+    // Control contributions
+    Serial.printf("ANGLE:%.2f  GYRO:%.2f  DIST:%.2f  SPD:%.2f\n",
       dbg.angle_contribution, dbg.gyro_contribution,
       dbg.distance_contribution, dbg.speed_contribution);
-    Serial.printf("state:%s fault:%u lifted:%d\n",
+    Serial.printf("LQR_RAW:%.2f  LQR_COMP:%.2f\n",
+      dbg.lqr_u_raw, dbg.lqr_u_compensated);
+
+    // Motor outputs
+    Serial.printf("MOTOR_L:%.2fV  MOTOR_R:%.2fV\n",
+      dbg.left_motor, dbg.right_motor);
+
+    // State
+    Serial.printf("STATE:%s  FAULT:0x%02X  LIFTED:%d\n",
       dbg.running?"RUN":"STOP", (unsigned)dbg.fault_flags, dbg.wheel_lifted);
+
     return;
   }
 
