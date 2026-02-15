@@ -24,9 +24,9 @@ static AsyncWebSocket ws("/ws");
 // ============================================================
 // Persistence helpers
 // ============================================================
-static constexpr const char* PARAMS_PATH = "/params/cascade.json";
+static constexpr const char* PARAMS_PATH = "/params/balance.json";
 
-static bool saveCascadeParams(const CascadeController::Params& p) {
+bool saveBalanceParams(const BalanceController::Params& p) {
   // Ensure directory exists
   if (!LittleFS.exists("/params")) {
     LittleFS.mkdir("/params");
@@ -35,20 +35,22 @@ static bool saveCascadeParams(const CascadeController::Params& p) {
   File f = LittleFS.open(PARAMS_PATH, "w");
   if (!f) return false;
 
-  // Simple JSON serialization (now 12 parameters with velocity_ki)
-  f.printf("{\"angle_kp\":%.4f,\"angle_ki\":%.4f,\"angle_kd\":%.4f,"
-           "\"angle_d_alpha\":%.3f,\"angle_max_out\":%.2f,\"angle_integrator_limit\":%.2f,"
-           "\"velocity_kp\":%.4f,\"velocity_ki\":%.4f,\"velocity_max_tilt\":%.3f,"
-           "\"max_tilt\":%.3f,\"ramp_time\":%.3f,\"pitch_offset\":%.4f}",
-           p.angle_kp, p.angle_ki, p.angle_kd,
-           p.angle_d_alpha, p.angle_max_out, p.angle_integrator_limit,
-           p.velocity_kp, p.velocity_ki, p.velocity_max_tilt,
-           p.max_tilt, p.ramp_time, p.pitch_offset);
+  // Simple JSON serialization
+  f.printf("{\"velocity_kp\":%.4f,\"velocity_ki\":%.4f,\"velocity_kd\":%.4f,\"velocity_max_tilt\":%.3f,"
+           "\"angle_kp\":%.4f,\"angle_ki\":%.4f,\"angle_gyro_kd\":%.4f,\"angle_d_alpha\":%.3f,\"angle_max_out\":%.2f,"
+           "\"yaw_kd\":%.4f,"
+           "\"max_tilt\":%.3f,\"ramp_time\":%.3f,\"pitch_offset\":%.4f,"
+           "\"pitch_cmd_rate_limit\":%.3f,\"sensor_timeout\":%.3f}",
+           p.velocity_kp, p.velocity_ki, p.velocity_kd, p.velocity_max_tilt,
+           p.angle_kp, p.angle_ki, p.angle_gyro_kd, p.angle_d_alpha, p.angle_max_out,
+           p.yaw_kd,
+           p.max_tilt, p.ramp_time, p.pitch_offset,
+           p.pitch_cmd_rate_limit, p.sensor_timeout);
   f.close();
   return true;
 }
 
-bool loadCascadeParams(CascadeController::Params& p) {
+bool loadBalanceParams(BalanceController::Params& p) {
   if (!LittleFS.exists(PARAMS_PATH)) {
     return false;  // No saved params
   }
@@ -61,32 +63,19 @@ bool loadCascadeParams(CascadeController::Params& p) {
   buf[n] = '\0';
   f.close();
 
-  // Try new format first (12 parameters with velocity_ki)
-  int matched = sscanf(buf, "{\"angle_kp\":%f,\"angle_ki\":%f,\"angle_kd\":%f,"
-             "\"angle_d_alpha\":%f,\"angle_max_out\":%f,\"angle_integrator_limit\":%f,"
-             "\"velocity_kp\":%f,\"velocity_ki\":%f,\"velocity_max_tilt\":%f,"
-             "\"max_tilt\":%f,\"ramp_time\":%f,\"pitch_offset\":%f}",
-         &p.angle_kp, &p.angle_ki, &p.angle_kd,
-         &p.angle_d_alpha, &p.angle_max_out, &p.angle_integrator_limit,
-         &p.velocity_kp, &p.velocity_ki, &p.velocity_max_tilt,
-         &p.max_tilt, &p.ramp_time, &p.pitch_offset);
+  // Parse JSON format
+  int matched = sscanf(buf, "{\"velocity_kp\":%f,\"velocity_ki\":%f,\"velocity_kd\":%f,\"velocity_max_tilt\":%f,"
+             "\"angle_kp\":%f,\"angle_ki\":%f,\"angle_gyro_kd\":%f,\"angle_d_alpha\":%f,\"angle_max_out\":%f,"
+             "\"yaw_kd\":%f,"
+             "\"max_tilt\":%f,\"ramp_time\":%f,\"pitch_offset\":%f,"
+             "\"pitch_cmd_rate_limit\":%f,\"sensor_timeout\":%f}",
+         &p.velocity_kp, &p.velocity_ki, &p.velocity_kd, &p.velocity_max_tilt,
+         &p.angle_kp, &p.angle_ki, &p.angle_gyro_kd, &p.angle_d_alpha, &p.angle_max_out,
+         &p.yaw_kd,
+         &p.max_tilt, &p.ramp_time, &p.pitch_offset,
+         &p.pitch_cmd_rate_limit, &p.sensor_timeout);
 
-  if (matched == 12) return true;
-
-  // Fallback to old format (11 parameters without velocity_ki)
-  matched = sscanf(buf, "{\"angle_kp\":%f,\"angle_ki\":%f,\"angle_kd\":%f,"
-             "\"angle_d_alpha\":%f,\"angle_max_out\":%f,\"angle_integrator_limit\":%f,"
-             "\"velocity_kp\":%f,\"velocity_max_tilt\":%f,"
-             "\"max_tilt\":%f,\"ramp_time\":%f,\"pitch_offset\":%f}",
-         &p.angle_kp, &p.angle_ki, &p.angle_kd,
-         &p.angle_d_alpha, &p.angle_max_out, &p.angle_integrator_limit,
-         &p.velocity_kp, &p.velocity_max_tilt,
-         &p.max_tilt, &p.ramp_time, &p.pitch_offset);
-
-  if (matched == 11) {
-    p.velocity_ki = 0.0f;  // Default for old format
-    return true;
-  }
+  if (matched == 15) return true;
 
   return false;
 }
@@ -105,17 +94,17 @@ static void sendTelemetry() {
     if (c->status() == WS_CONNECTED && !c->canSend()) return;
   }
 
-  CascadeDebug dbg;
-  s_ctx->cascade.getDebug(dbg);
+  BalanceDebug dbg;
+  s_ctx->balance.getDebug(dbg);
 
   FrequencyStats freq;
-  s_ctx->cascade.getFrequencyStats(freq);
+  s_ctx->balance.getFrequencyStats(freq);
 
   LimitStatus limits;
-  s_ctx->cascade.getLimitStatus(limits);
+  s_ctx->balance.getLimitStatus(limits);
 
   RuntimeStats runtime;
-  s_ctx->cascade.getRuntimeStats(runtime);
+  s_ctx->balance.getRuntimeStats(runtime);
 
   // Build saturation bitmask (velocity=bit0, angle=bit1, motor=bit2)
   uint8_t saturated = 0;
@@ -151,24 +140,26 @@ static void sendTelemetry() {
 
 static void sendParams(AsyncWebSocketClient* client) {
   if (!s_ctx) return;
-  CascadeController::Params p;
-  s_ctx->cascade.getParams(p);
+  BalanceController::Params p;
+  s_ctx->balance.getParams(p);
 
   char buf[1024];
   snprintf(buf, sizeof(buf),
-    "{\"type\":\"params\",\"cascade\":{"
-    "\"angle_kp\":%.4f,\"angle_ki\":%.4f,\"angle_kd\":%.4f,"
-    "\"angle_d_alpha\":%.3f,\"angle_max_out\":%.2f,\"angle_integrator_limit\":%.2f,"
-    "\"velocity_kp\":%.4f,\"velocity_ki\":%.4f,\"velocity_max_tilt\":%.3f,"
-    "\"max_tilt\":%.3f,\"ramp_time\":%.3f,\"pitch_offset\":%.4f},"
+    "{\"type\":\"params\",\"balance\":{"
+    "\"velocity_kp\":%.4f,\"velocity_ki\":%.4f,\"velocity_kd\":%.4f,\"velocity_max_tilt\":%.3f,"
+    "\"angle_kp\":%.4f,\"angle_ki\":%.4f,\"angle_gyro_kd\":%.4f,\"angle_d_alpha\":%.3f,\"angle_max_out\":%.2f,"
+    "\"yaw_kd\":%.4f,"
+    "\"max_tilt\":%.3f,\"ramp_time\":%.3f,\"pitch_offset\":%.4f,"
+    "\"pitch_cmd_rate_limit\":%.3f,\"sensor_timeout\":%.3f},"
     "\"foc\":{\"voltage_limit\":%.2f,\"velocity_limit\":%.2f,"
     "\"pid_p\":%.6f,\"pid_i\":%.6f,\"pid_d\":%.6f},"
     "\"ctrl\":{\"motor_enable\":%s,\"balance_enable\":%s,"
     "\"manual_target\":%.3f,\"motion_mode\":%d,\"torque_mode\":%d}}",
-    p.angle_kp, p.angle_ki, p.angle_kd,
-    p.angle_d_alpha, p.angle_max_out, p.angle_integrator_limit,
-    p.velocity_kp, p.velocity_ki, p.velocity_max_tilt,
+    p.velocity_kp, p.velocity_ki, p.velocity_kd, p.velocity_max_tilt,
+    p.angle_kp, p.angle_ki, p.angle_gyro_kd, p.angle_d_alpha, p.angle_max_out,
+    p.yaw_kd,
     p.max_tilt, p.ramp_time, p.pitch_offset,
+    p.pitch_cmd_rate_limit, p.sensor_timeout,
     (float)s_ctx->cmd_state.req_tlimit, (float)s_ctx->cmd_state.req_vlimit,
     (float)s_ctx->cmd_state.req_pid_p, (float)s_ctx->cmd_state.req_pid_i, (float)s_ctx->cmd_state.req_pid_d,
     s_ctx->cmd_state.motor_enable  ? "true" : "false",
@@ -215,17 +206,16 @@ static void handleSetAngle(const char* buf, AsyncWebSocketClient* client) {
   if (!parseKey(buf, key, sizeof(key))) return;
   float val = parseValue(buf);
 
-  CascadeController::Params p;
-  s_ctx->cascade.getParams(p);
+  BalanceController::Params p;
+  s_ctx->balance.getParams(p);
 
-  if      (strcmp(key, "angle_kp") == 0)               p.angle_kp = val;
-  else if (strcmp(key, "angle_ki") == 0)               p.angle_ki = val;
-  else if (strcmp(key, "angle_kd") == 0)               p.angle_kd = val;
-  else if (strcmp(key, "angle_d_alpha") == 0)          p.angle_d_alpha = val;
-  else if (strcmp(key, "angle_max_out") == 0)          p.angle_max_out = val;
-  else if (strcmp(key, "angle_integrator_limit") == 0) p.angle_integrator_limit = val;
+  if      (strcmp(key, "angle_kp") == 0)        p.angle_kp = val;
+  else if (strcmp(key, "angle_ki") == 0)        p.angle_ki = val;
+  else if (strcmp(key, "angle_gyro_kd") == 0)   p.angle_gyro_kd = val;
+  else if (strcmp(key, "angle_d_alpha") == 0)   p.angle_d_alpha = val;
+  else if (strcmp(key, "angle_max_out") == 0)   p.angle_max_out = val;
 
-  s_ctx->cascade.setParams(p);
+  s_ctx->balance.setParams(p);
 
   char ack[128];
   snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_angle\",\"key\":\"%s\",\"value\":%.4f}", key, val);
@@ -238,14 +228,15 @@ static void handleSetVelocity(const char* buf, AsyncWebSocketClient* client) {
   if (!parseKey(buf, key, sizeof(key))) return;
   float val = parseValue(buf);
 
-  CascadeController::Params p;
-  s_ctx->cascade.getParams(p);
+  BalanceController::Params p;
+  s_ctx->balance.getParams(p);
 
   if (strcmp(key, "velocity_kp") == 0)          p.velocity_kp = val;
   else if (strcmp(key, "velocity_ki") == 0)     p.velocity_ki = val;
+  else if (strcmp(key, "velocity_kd") == 0)     p.velocity_kd = val;
   else if (strcmp(key, "velocity_max_tilt") == 0) p.velocity_max_tilt = val;
 
-  s_ctx->cascade.setParams(p);
+  s_ctx->balance.setParams(p);
 
   char ack[128];
   snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_velocity\",\"key\":\"%s\",\"value\":%.4f}", key, val);
@@ -258,17 +249,37 @@ static void handleSetSafety(const char* buf, AsyncWebSocketClient* client) {
   if (!parseKey(buf, key, sizeof(key))) return;
   float val = parseValue(buf);
 
-  CascadeController::Params p;
-  s_ctx->cascade.getParams(p);
+  BalanceController::Params p;
+  s_ctx->balance.getParams(p);
 
-  if      (strcmp(key, "max_tilt") == 0)      p.max_tilt = val;
-  else if (strcmp(key, "ramp_time") == 0)     p.ramp_time = val;
-  else if (strcmp(key, "pitch_offset") == 0)  p.pitch_offset = val;
+  if      (strcmp(key, "max_tilt") == 0)             p.max_tilt = val;
+  else if (strcmp(key, "ramp_time") == 0)            p.ramp_time = val;
+  else if (strcmp(key, "pitch_offset") == 0)         p.pitch_offset = val;
+  else if (strcmp(key, "pitch_cmd_rate_limit") == 0) p.pitch_cmd_rate_limit = val;
+  else if (strcmp(key, "sensor_timeout") == 0)       p.sensor_timeout = val;
 
-  s_ctx->cascade.setParams(p);
+  s_ctx->balance.setParams(p);
 
   char ack[128];
   snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_safety\",\"key\":\"%s\",\"value\":%.4f}", key, val);
+  client->text(ack);
+}
+
+static void handleSetYaw(const char* buf, AsyncWebSocketClient* client) {
+  if (!s_ctx) return;
+  char key[32];
+  if (!parseKey(buf, key, sizeof(key))) return;
+  float val = parseValue(buf);
+
+  BalanceController::Params p;
+  s_ctx->balance.getParams(p);
+
+  if (strcmp(key, "yaw_kd") == 0) p.yaw_kd = val;
+
+  s_ctx->balance.setParams(p);
+
+  char ack[128];
+  snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"set_yaw\",\"key\":\"%s\",\"value\":%.4f}", key, val);
   client->text(ack);
 }
 
@@ -344,9 +355,9 @@ static void handleSetTarget(const char* buf, AsyncWebSocketClient* client) {
 
 static void handleSaveParams(AsyncWebSocketClient* client) {
   if (!s_ctx) return;
-  CascadeController::Params p;
-  s_ctx->cascade.getParams(p);
-  bool ok = saveCascadeParams(p);
+  BalanceController::Params p;
+  s_ctx->balance.getParams(p);
+  bool ok = saveBalanceParams(p);
 
   char ack[64];
   snprintf(ack, sizeof(ack), "{\"type\":\"ack\",\"cmd\":\"save_params\",\"ok\":%s}", ok ? "true" : "false");
@@ -362,6 +373,7 @@ static void handleCommand(uint8_t* data, size_t len, AsyncWebSocketClient* clien
   if      (strstr(buf, "\"set_angle\""))     handleSetAngle(buf, client);
   else if (strstr(buf, "\"set_velocity\""))  handleSetVelocity(buf, client);
   else if (strstr(buf, "\"set_safety\""))    handleSetSafety(buf, client);
+  else if (strstr(buf, "\"set_yaw\""))       handleSetYaw(buf, client);
   else if (strstr(buf, "\"set_foc\""))       handleSetFoc(buf, client);
   else if (strstr(buf, "\"set_ctrl\""))      handleSetCtrl(buf, client);
   else if (strstr(buf, "\"set_target\""))    handleSetTarget(buf, client);
