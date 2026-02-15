@@ -1,0 +1,62 @@
+name: balance-tune
+version: 1.0.0
+description: Automatically tune balance controller parameters using closed-loop feedback
+author: Claude & User
+
+# Trigger phrases
+triggers:
+  - "tune the balance"
+  - "optimize balance parameters"
+  - "auto tune"
+  - "calibrate balance controller"
+  - "improve stability"
+
+# Execution command
+command: python3 tools/auto_tune.py
+
+# Documentation
+documentation: skills/balance-tune.md
+
+# Requirements
+requirements:
+  - python3
+  - pyserial
+  - Connected balance robot via USB serial
+
+# Parameters (optional overrides)
+parameters:
+  port:
+    description: Serial port device
+    default: /dev/cu.usbmodem*
+  max_iterations:
+    description: Maximum tuning iterations
+    default: 15
+  convergence_threshold:
+    description: Target pitch standard deviation
+    default: 0.015
+
+# Examples
+examples:
+  - user_input: "tune the balance parameters"
+    expected_behavior: "Run auto_tune.py, iterate 5-15 times, save optimized parameters"
+
+  - user_input: "the robot is oscillating, help me fix it"
+    expected_behavior: "Diagnose as OSCILLATING, reduce angle_kp, increase damping"
+
+# Safety notes
+safety:
+  - Always verify robot is in safe position before tuning
+  - Parameters are constrained to safe ranges
+  - Abort if stability degrades continuously
+  - User can interrupt with Ctrl+C
+
+# Output format
+output_format: |
+  Iteration N:
+    Pitch: mean=X.XXX, std=X.XXX, crossings=XX
+    Status: [OSCILLATING|UNSTABLE|ACCEPTABLE|CONVERGED]
+    Action: [parameter changes]
+
+  === Tuning Complete ===
+  Improvement: XX.X%
+  Final parameters saved

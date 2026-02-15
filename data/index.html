@@ -101,12 +101,10 @@ input:checked+.slider:before{transform:translateX(18px);background:#fff}
 <div>
   <div class="card">
     <h2>角度环 (内环) <span class="hz">200Hz</span></h2>
-    <div class="row"><label>比例增益 Kp<span class="en">angle_kp</span></label><input type="number" id="cascade-angle_kp" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendAngle('angle_kp')">设置</button></div>
-    <div class="row"><label>积分增益 Ki<span class="en">angle_ki</span></label><input type="number" id="cascade-angle_ki" step="0.1" value="0.0"><button class="btn btn-send" onclick="sendAngle('angle_ki')">设置</button></div>
-    <div class="row"><label>微分增益 Kd<span class="en">angle_kd</span></label><input type="number" id="cascade-angle_kd" step="0.1" value="0.6"><button class="btn btn-send" onclick="sendAngle('angle_kd')">设置</button></div>
-    <div class="row"><label>微分滤波<span class="en">angle_d_alpha</span></label><input type="number" id="cascade-angle_d_alpha" step="0.05" value="0.7"><button class="btn btn-send" onclick="sendAngle('angle_d_alpha')">设置</button></div>
-    <div class="row"><label>最大输出(V)<span class="en">angle_max_out</span></label><input type="number" id="cascade-angle_max_out" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendAngle('angle_max_out')">设置</button></div>
-    <div class="row"><label>积分限幅<span class="en">angle_integrator_limit</span></label><input type="number" id="cascade-angle_integrator_limit" step="0.5" value="2.0"><button class="btn btn-send" onclick="sendAngle('angle_integrator_limit')">设置</button></div>
+    <div class="row"><label>比例增益 Kp<span class="en">angle_kp</span></label><input type="number" id="balance-angle_kp" step="0.5" value="1.5"><button class="btn btn-send" onclick="sendAngle('angle_kp')">设置</button></div>
+    <div class="row"><label>积分增益 Ki<span class="en">angle_ki</span></label><input type="number" id="balance-angle_ki" step="0.1" value="0.0"><button class="btn btn-send" onclick="sendAngle('angle_ki')">设置</button></div>
+    <div class="row"><label>微分增益 Kd<span class="en">angle_kd</span></label><input type="number" id="balance-angle_kd" step="0.1" value="0.6"><button class="btn btn-send" onclick="sendAngle('angle_kd')">设置</button></div>
+    <div class="row"><label>最大输出(V)<span class="en">angle_max_out</span></label><input type="number" id="balance-angle_max_out" step="0.5" value="6.0"><button class="btn btn-send" onclick="sendAngle('angle_max_out')">设置</button></div>
   </div>
 
   <div class="card" style="margin-top:8px">
@@ -133,16 +131,16 @@ input:checked+.slider:before{transform:translateX(18px);background:#fff}
 <div>
   <div class="card">
     <h2>速度环 (外环) <span class="hz" id="velocity-freq">50Hz</span></h2>
-    <div class="row"><label>比例增益 Kp<span class="en">velocity_kp</span></label><input type="number" id="cascade-velocity_kp" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendVelocity('velocity_kp')">设置</button></div>
-    <div class="row"><label>积分增益 Ki<span class="en">velocity_ki</span></label><input type="number" id="cascade-velocity_ki" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendVelocity('velocity_ki')">设置</button></div>
-    <div class="row"><label>最大倾角(rad)<span class="en">velocity_max_tilt</span></label><input type="number" id="cascade-velocity_max_tilt" step="0.05" value="0.14"><button class="btn btn-send" onclick="sendVelocity('velocity_max_tilt')">设置</button></div>
+    <div class="row"><label>比例增益 Kp<span class="en">velocity_kp</span></label><input type="number" id="balance-velocity_kp" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendVelocity('velocity_kp')">设置</button></div>
+    <div class="row"><label>积分增益 Ki<span class="en">velocity_ki</span></label><input type="number" id="balance-velocity_ki" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendVelocity('velocity_ki')">设置</button></div>
+    <div class="row"><label>最大倾角(rad)<span class="en">velocity_max_tilt</span></label><input type="number" id="balance-velocity_max_tilt" step="0.05" value="0.14"><button class="btn btn-send" onclick="sendVelocity('velocity_max_tilt')">设置</button></div>
   </div>
 
   <div class="card" style="margin-top:8px">
     <h2>安全限制</h2>
-    <div class="row"><label>最大安全倾角<span class="en">max_tilt</span></label><input type="number" id="cascade-max_tilt" step="0.05" value="0.611"><button class="btn btn-send" onclick="sendSafety('max_tilt')">设置</button></div>
-    <div class="row"><label>启动斜坡时间<span class="en">ramp_time</span></label><input type="number" id="cascade-ramp_time" step="0.1" value="0.5"><button class="btn btn-send" onclick="sendSafety('ramp_time')">设置</button></div>
-    <div class="row"><label>姿态零点偏移<span class="en">pitch_offset</span></label><input type="number" id="cascade-pitch_offset" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendSafety('pitch_offset')">设置</button></div>
+    <div class="row"><label>最大安全倾角<span class="en">max_tilt</span></label><input type="number" id="balance-max_tilt" step="0.05" value="0.611"><button class="btn btn-send" onclick="sendSafety('max_tilt')">设置</button></div>
+    <div class="row"><label>启动斜坡时间<span class="en">ramp_time</span></label><input type="number" id="balance-ramp_time" step="0.1" value="0.5"><button class="btn btn-send" onclick="sendSafety('ramp_time')">设置</button></div>
+    <div class="row"><label>姿态零点偏移<span class="en">pitch_offset</span></label><input type="number" id="balance-pitch_offset" step="0.01" value="0.0"><button class="btn btn-send" onclick="sendSafety('pitch_offset')">设置</button></div>
   </div>
 
   <div class="card" style="margin-top:8px">
@@ -478,9 +476,9 @@ function setSatBox(id, sat) {
 
 // ==================== Params Handler ====================
 function handleParams(msg) {
-  if (msg.cascade) {
-    for (const [k, v] of Object.entries(msg.cascade)) {
-      const el = document.getElementById('cascade-' + k);
+  if (msg.balance) {
+    for (const [k, v] of Object.entries(msg.balance)) {
+      const el = document.getElementById('balance-' + k);
       if (el) el.value = v;
     }
   }
@@ -505,21 +503,27 @@ function handleParams(msg) {
 
 // ==================== Command Senders ====================
 function sendAngle(key) {
-  const el = document.getElementById('cascade-' + key);
+  const el = document.getElementById('balance-' + key);
   if (ws && ws.readyState === 1 && el)
     ws.send(JSON.stringify({ type: 'set_angle', key: key, value: parseFloat(el.value) }));
 }
 
 function sendVelocity(key) {
-  const el = document.getElementById('cascade-' + key);
+  const el = document.getElementById('balance-' + key);
   if (ws && ws.readyState === 1 && el)
     ws.send(JSON.stringify({ type: 'set_velocity', key: key, value: parseFloat(el.value) }));
 }
 
 function sendSafety(key) {
-  const el = document.getElementById('cascade-' + key);
+  const el = document.getElementById('balance-' + key);
   if (ws && ws.readyState === 1 && el)
     ws.send(JSON.stringify({ type: 'set_safety', key: key, value: parseFloat(el.value) }));
+}
+
+function sendYaw(key) {
+  const el = document.getElementById('balance-' + key);
+  if (ws && ws.readyState === 1 && el)
+    ws.send(JSON.stringify({ type: 'set_yaw', key: key, value: parseFloat(el.value) }));
 }
 
 function sendFoc(key) {
