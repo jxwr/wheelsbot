@@ -10,7 +10,7 @@
 #include "hardware/imu_mpu6050_hal.h"
 #include "hardware/simplefoc_sensor_adapter.h"
 #include "hardware/hardware_manager.h"
-#include "control/cascade_controller.h"
+#include "control/balance_controller.h"
 
 using namespace wheelsbot::hardware;
 using namespace wheelsbot::control;
@@ -39,7 +39,7 @@ struct AppContext {
   HardwareManager hw;
 
   // --- Control ---
-  CascadeController cascade;
+  BalanceController balance;
 
   // --- I2C bus mutex (protects multi-step Wire transactions) ---
   SemaphoreHandle_t wire_mutex = nullptr;

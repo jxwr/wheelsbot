@@ -2,13 +2,23 @@
 #include <Wire.h>
 #include <SimpleFOC.h>
 #include <ArduinoOTA.h>
+#include <cstring>
 
 #include "pins.h"
 #include "app_context.h"
 #include "wifi_debug.h"
+#include "serial_debug.h"
 
 using namespace wheelsbot::hardware;
 using namespace wheelsbot::control;
+
+// Global context pointer for commander callbacks
+static AppContext* bal_ctx = nullptr;
+
+// Forward declarations for serial commands
+static void setParam(const char* name, float value);
+static void cmdShow();
+static void handleSerialCommands();
 
 // ============================================================
 // Helper functions
@@ -70,28 +80,34 @@ static void imuTask(void* arg) {
   }
 }
 
-// balanceTask: 200Hz cascade control — Position → Velocity → Angle + Yaw mixing
+// serialDebugTask: 100Hz - Process serial commands and stream data
+static void serialDebugTask(void* arg) {
+  auto* ctx = static_cast<AppContext*>(arg);
+  static wheelsbot::debug::SerialDebug serial_debug;
+
+  serial_debug.init(ctx);
+
+  const TickType_t period = pdMS_TO_TICKS(10);  // 100Hz
+  TickType_t last = xTaskGetTickCount();
+
+  while (true) {
+    serial_debug.processCommands();
+    serial_debug.sendDataIfReady();
+    vTaskDelayUntil(&last, period);
+  }
+}
+
+// balanceTask: 200Hz cascade control — Velocity → Angle + Yaw mixing
 static void balanceTask(void* arg) {
   auto* ctx = static_cast<AppContext*>(arg);
   const TickType_t period = pdMS_TO_TICKS(5);
   TickType_t last = xTaskGetTickCount();
 
-  ctx->cascade.reset();
+  ctx->balance.reset();
   uint32_t lastUs = micros();
 
-  // Controller tuning (position loop disabled)
-  // === Fixed: Keep cascade control but with stronger angle loop ===
-  ctx->cascade.angleLoop().setGains(20.0f, 0.0f, 0.5f);  // Kp=20 for more torque, Kd=0.5 for damping
-  ctx->cascade.velocityLoop().setGains(0.03f, 0.0f, 0.0f);  // Pure P, no integral windup
-  ctx->cascade.velocityLoop().setMaxTiltCommand(0.35f);  // Increased: ~20 degrees max tilt
-
-  // === Scheme 3: Direct drive mode - velocity command maps directly to voltage ===
-  // Like steering: target speed -> direct voltage (open-loop), angle loop just corrects balance
-  // This bypasses the "tilt to accelerate" limitation
-  constexpr float VEL_FF_GAIN = 5.0f;  // V/(m/s), much higher for direct drive feel
-
-  // Navigation state
-  float heading = 0.0f;       // Integrated heading (rad)
+  // Parameters are loaded from flash or defaults in balance_controller.h
+  // No hardcoded tuning here - keep it clean!
 
   while (true) {
     uint32_t nowUs = micros();
@@ -103,88 +119,38 @@ static void balanceTask(void* arg) {
     // Note: wL/wR negated to match physical direction (positive = forward)
     float wL = ctx->wheel_state.valid ? -ctx->wheel_state.wL : 0.0f;
     float wR = ctx->wheel_state.valid ? -ctx->wheel_state.wR : 0.0f;
-    float wheel_vel = (wL + wR) * 0.5f;  // Average wheel velocity (rad/s)
-    float gyro_z = ctx->imu_state.valid ? ctx->imu_state.gz : 0.0f;  // Yaw rate
+    float wheel_vel = (wL + wR) * 0.5f;
 
-    // Integrate heading
-    heading += gyro_z * dt;
-    // Normalize heading to [-pi, pi]
-    constexpr float PIf = 3.14159265358979f;
-    while (heading > PIf) heading -= 2 * PIf;
-    while (heading < -PIf) heading += 2 * PIf;
+    // Prepare balance input
+    BalanceInput bin;
+    bin.pitch = ctx->imu_state.valid
+        ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;
+    bin.pitch_rate = ctx->imu_state.valid ? ctx->imu_state.gy : 0.0f;
+    bin.yaw_rate = ctx->imu_state.valid ? ctx->imu_state.gz : 0.0f;
+    bin.wheel_velocity = wheel_vel;
+    bin.wheel_position = (ctx->wheel_state.xL + ctx->wheel_state.xR) * 0.5f;
 
-    // Update shared state for telemetry (heading only, no position loop)
-    ctx->heading = heading;
-
-    // Determine target based on mode
-    // Note: Position loop disabled. Both modes use VELOCITY_MODE with direct velocity control.
-    // - Hold mode: velocity_reference = 0 (just balance, don't try to move)
-    // - Remote mode: velocity_reference from joystick
-    float velocity_reference = 0.0f;      // Default: no velocity command
-    float target_yaw_rate = ctx->target_yaw_rate;
-
+    // Determine targets based on mode
     if (ctx->remote_mode) {
-      // Remote mode: use joystick velocity command
-      velocity_reference = ctx->target_linear_vel;
+      bin.target_velocity = ctx->target_linear_vel;
+      bin.target_yaw_rate = ctx->target_yaw_rate;
     } else {
-      // Hold mode: just balance, no velocity command (position loop disabled)
-      velocity_reference = 0.0f;
-      target_yaw_rate = 0.0f;
+      bin.target_velocity = 0.0f;
+      bin.target_yaw_rate = 0.0f;
     }
 
-    // Prepare cascade input
-    CascadeInput cin;
-    // Convert linear velocity (m/s) to wheel velocity (rad/s) for cascade
-    cin.velocity_reference = velocity_reference / WHEEL_RADIUS_M;  // m/s -> rad/s
-    cin.velocity_measurement = wheel_vel;  // already in rad/s
-    cin.pitch_measurement = ctx->imu_state.valid
-        ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;
-    cin.pitch_rate = ctx->imu_state.valid ? ctx->imu_state.gy : 0.0f;
-    cin.dt = dt;
-    cin.timestamp_ms = millis();
-    cin.enabled = ctx->cmd_state.balance_enable;
-    cin.sensors_valid = ctx->imu_state.valid && ctx->wheel_state.valid;
+    bin.dt = dt;
+    bin.enabled = ctx->cmd_state.balance_enable;
+    bin.sensors_valid = ctx->imu_state.valid && ctx->wheel_state.valid;
 
-    // === Direct Drive Mode: Angle loop for balance + open-loop voltage for speed ===
-    // This bypasses the velocity->tilt cascade, giving direct torque like steering
-    float pitch_rad = ctx->imu_state.valid
-        ? (ctx->imu_state.pitch_deg * 3.14159f / 180.0f) : 0.0f;
+    // Execute cascade control
+    BalanceOutput bout;
+    ctx->balance.step(bin, bout);
 
-    // Angle loop: always target upright (0 rad), ignore velocity loop
-    // This produces restoring torque to stay vertical
-    float angle_cmd = -20.0f * pitch_rad - 0.5f * ctx->imu_state.gy;  // Kp=20, Kd=0.5
-    angle_cmd = clamp(angle_cmd, -10.0f, 10.0f);
-
-    // Direct velocity drive: target speed -> voltage (open-loop, no tilt waiting)
-    float velocity_cmd = velocity_reference * VEL_FF_GAIN;
-    velocity_cmd = clamp(velocity_cmd, -10.0f, 10.0f);
-
-    // Combine: angle keeps us upright, velocity drives us forward
-    float longitudinal_cmd = angle_cmd + velocity_cmd;
-    longitudinal_cmd = clamp(longitudinal_cmd, -11.0f, 11.0f);  // Slight headroom for combined
-
-    // Compute yaw differential command
-    // Map target yaw rate directly to wheel speed differential (open-loop for responsiveness)
-    float yaw_diff = 0.0f;
-    if (fabsf(target_yaw_rate) > 0.05f) {  // Deadband
-      // Convert yaw rate to wheel speed differential with reduced gain for smoother turning
-      // Formula: omega_yaw * track_width / (2 * wheel_radius) * gain
-      constexpr float YAW_GAIN = 0.5f;  // Reduce turning intensity
-      yaw_diff = target_yaw_rate * TRACK_WIDTH_M / (2.0f * WHEEL_RADIUS_M) * YAW_GAIN;
-      // Limit differential to prevent motor saturation (adapted for feedforward)
-      float max_diff = fabsf(longitudinal_cmd) > 6.0f ? 3.0f : (9.0f - fabsf(longitudinal_cmd));
-      yaw_diff = clamp(yaw_diff, -max_diff, max_diff);
-    }
-
-    // Apply differential to get final wheel commands
-    // When going straight: left = right = longitudinal_cmd
-    // When turning: one wheel speeds up, other slows down
-    float left_cmd = longitudinal_cmd + yaw_diff;
-    float right_cmd = longitudinal_cmd - yaw_diff;
-
-    ctx->bal_state.left_target = left_cmd;
-    ctx->bal_state.right_target = right_cmd;
-    ctx->bal_state.ok = true;
+    // Update shared state for telemetry
+    ctx->bal_state.left_target = bout.left_motor;
+    ctx->bal_state.right_target = bout.right_motor;
+    ctx->bal_state.ok = bout.valid;
 
     vTaskDelayUntil(&last, period);
   }
@@ -339,16 +305,23 @@ static void focTask(void* arg) {
       ctx->wheel_state.valid = true;
     }
 
-    // choose target
-    float ltarget = 0.0f;
-    float rtarget = 0.0f;
+    // Control mode switching (edge-triggered to avoid redundant setting)
+    static bool last_balance_mode = false;
+    bool balance_mode = ctx->cmd_state.balance_enable && ctx->bal_state.ok;
 
-    if (ctx->cmd_state.balance_enable && ctx->bal_state.ok) {
-      ctx->lmotor.controller = MotionControlType::torque;
-      ctx->rmotor.controller = MotionControlType::torque;
-      ctx->lmotor.torque_controller = TorqueControlType::voltage;
-      ctx->rmotor.torque_controller = TorqueControlType::voltage;
+    if (balance_mode != last_balance_mode) {
+      if (balance_mode) {
+        ctx->lmotor.controller = MotionControlType::torque;
+        ctx->rmotor.controller = MotionControlType::torque;
+        ctx->lmotor.torque_controller = TorqueControlType::voltage;
+        ctx->rmotor.torque_controller = TorqueControlType::voltage;
+      }
+      last_balance_mode = balance_mode;
+    }
 
+    // Choose target based on mode
+    float ltarget, rtarget;
+    if (balance_mode) {
       ltarget = ctx->bal_state.left_target;
       rtarget = ctx->bal_state.right_target;
     } else {
@@ -448,23 +421,24 @@ void setup() {
   ArduinoOTA.begin();
   Serial.println("OTA Ready - IP: " + WiFi.softAPIP().toString());
 
-  // Load cascade controller parameters from flash (if exists)
-  CascadeController::Params params;
-  if (loadCascadeParams(params)) {
-    ctx.cascade.setParams(params);
-    Serial.println("Loaded cascade params from flash");
+  // Load balance controller parameters from flash (if exists)
+  BalanceController::Params params;
+  if (loadBalanceParams(params)) {
+    ctx.balance.setParams(params);
+    Serial.println("Loaded balance params from flash");
   } else {
-    Serial.println("Using default cascade params (flash unavailable)");
+    Serial.println("Using default balance params (flash unavailable)");
   }
 
   // Start tasks — core assignment:
-  // Core 0: imuTask(prio 5), balanceTask(prio 4), wifiDebugTask(prio 1), ledTask(prio 0)
+  // Core 0: imuTask(prio 5), balanceTask(prio 4), serialDebugTask(prio 2), wifiDebugTask(prio 1), ledTask(prio 0)
   // Core 1: focTask(prio 5) — sole owner of sensor I2C reads
-  xTaskCreatePinnedToCore(ledTask,       "LED", 2048, nullptr, 0, nullptr, 0);
-  xTaskCreatePinnedToCore(imuTask,       "IMU", 8192, &ctx,    5, nullptr, 0);
-  xTaskCreatePinnedToCore(balanceTask,   "BAL", 8192, &ctx,    4, nullptr, 0);
-  xTaskCreatePinnedToCore(wifiDebugTask, "WST", 8192, &ctx,    1, nullptr, 0);
-  xTaskCreatePinnedToCore(focTask,       "FOC", 8192, &ctx,    5, nullptr, 1);
+  xTaskCreatePinnedToCore(ledTask,         "LED", 2048, nullptr, 0, nullptr, 0);
+  xTaskCreatePinnedToCore(imuTask,         "IMU", 8192, &ctx,    5, nullptr, 0);
+  xTaskCreatePinnedToCore(balanceTask,     "BAL", 8192, &ctx,    4, nullptr, 0);
+  xTaskCreatePinnedToCore(serialDebugTask, "SDB", 4096, &ctx,    2, nullptr, 0);
+  xTaskCreatePinnedToCore(wifiDebugTask,   "WST", 8192, &ctx,    1, nullptr, 0);
+  xTaskCreatePinnedToCore(focTask,         "FOC", 8192, &ctx,    5, nullptr, 1);
 
   Serial.println("Tasks started");
 }
@@ -472,5 +446,123 @@ void setup() {
 void loop() {
   // Handle OTA updates
   ArduinoOTA.handle();
+
+  // Serial commands now handled by serialDebugTask (CSV-based AI-friendly protocol)
+  // Old simple command handler removed - use new SerialDebug interface
+
   vTaskDelay(pdMS_TO_TICKS(100));
+}
+
+// ============================================================
+// Serial command implementation
+// ============================================================
+
+static void setParam(const char* name, float value) {
+  BalanceController::Params p;
+  bal_ctx->balance.getParams(p);
+
+  if (strcmp(name, "velocity_kp") == 0) p.velocity_kp = value;
+  else if (strcmp(name, "velocity_ki") == 0) p.velocity_ki = value;
+  else if (strcmp(name, "velocity_kd") == 0) p.velocity_kd = value;
+  else if (strcmp(name, "velocity_max_tilt") == 0) p.velocity_max_tilt = value;
+  else if (strcmp(name, "angle_kp") == 0) p.angle_kp = value;
+  else if (strcmp(name, "angle_ki") == 0) p.angle_ki = value;
+  else if (strcmp(name, "angle_gyro_kd") == 0) p.angle_gyro_kd = value;
+  else if (strcmp(name, "angle_d_alpha") == 0) p.angle_d_alpha = value;
+  else if (strcmp(name, "angle_max_out") == 0) p.angle_max_out = value;
+  else if (strcmp(name, "yaw_kd") == 0) p.yaw_kd = value;
+  else if (strcmp(name, "max_tilt") == 0) p.max_tilt = value;
+  else if (strcmp(name, "ramp_time") == 0) p.ramp_time = value;
+  else if (strcmp(name, "pitch_offset") == 0) p.pitch_offset = value;
+  else if (strcmp(name, "pitch_cmd_rate_limit") == 0) p.pitch_cmd_rate_limit = value;
+  else if (strcmp(name, "sensor_timeout") == 0) p.sensor_timeout = value;
+  else {
+    Serial.printf("Unknown param: %s\n", name);
+    return;
+  }
+
+  bal_ctx->balance.setParams(p);
+  Serial.printf("Set %s = %.4f (NOT saved yet, use 'S' to save)\n", name, value);
+}
+
+static void cmdShow() {
+  BalanceController::Params p;
+  bal_ctx->balance.getParams(p);
+  Serial.printf("=== Balance Controller Params ===\n");
+  Serial.printf("Velocity: Kp=%.4f, Ki=%.4f, Kd=%.4f, max_tilt=%.3f\n",
+                p.velocity_kp, p.velocity_ki, p.velocity_kd, p.velocity_max_tilt);
+  Serial.printf("Angle:    Kp=%.4f, Ki=%.4f, gyro_Kd=%.4f, d_alpha=%.3f, max_out=%.2f\n",
+                p.angle_kp, p.angle_ki, p.angle_gyro_kd, p.angle_d_alpha, p.angle_max_out);
+  Serial.printf("Yaw:      Kd=%.4f\n", p.yaw_kd);
+  Serial.printf("Safety:   max_tilt=%.3f, ramp_time=%.3f, pitch_offset=%.4f\n",
+                p.max_tilt, p.ramp_time, p.pitch_offset);
+  Serial.printf("Advanced: pitch_rate_limit=%.3f, sensor_timeout=%.3f\n",
+                p.pitch_cmd_rate_limit, p.sensor_timeout);
+  Serial.printf("Decimation: %d\n", p.velocity_decimation);
+}
+
+static void handleSerialCommands() {
+  static char cmd[64];
+  static uint8_t idx = 0;
+
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (idx > 0) {
+        cmd[idx] = '\0';
+
+        // Parse command
+        char name[32];
+        float value;
+        if (sscanf(cmd, "P %s %f", name, &value) == 2) {
+          // P <param> <value> - Set parameter
+          setParam(name, value);
+        }
+        else if (cmd[0] == 'S' || cmd[0] == 's') {
+          // S - Save to flash
+          BalanceController::Params p;
+          bal_ctx->balance.getParams(p);
+          if (saveBalanceParams(p)) {
+            Serial.println("✓ Params saved to flash");
+          } else {
+            Serial.println("✗ Save failed");
+          }
+        }
+        else if (cmd[0] == 'L' || cmd[0] == 'l') {
+          // L - Load from flash
+          BalanceController::Params p;
+          if (loadBalanceParams(p)) {
+            bal_ctx->balance.setParams(p);
+            Serial.println("✓ Params loaded from flash");
+          } else {
+            Serial.println("✗ No saved params found");
+          }
+        }
+        else if (cmd[0] == 'D' || cmd[0] == 'd') {
+          // D - Display current params
+          cmdShow();
+        }
+        else if (cmd[0] == 'R' || cmd[0] == 'r') {
+          // R - Reset to defaults
+          bal_ctx->balance.reset();
+          Serial.println("✓ Params reset to defaults (NOT saved, use 'S' to save)");
+        }
+        else {
+          Serial.println("Commands:");
+          Serial.println("  P <param> <value>  - Set parameter (e.g., P angle_kp 3.0)");
+          Serial.println("  S                  - Save to flash");
+          Serial.println("  L                  - Load from flash");
+          Serial.println("  D                  - Display current params");
+          Serial.println("  R                  - Reset to defaults");
+          Serial.println("Params: velocity_kp/ki/kd, angle_kp/ki/gyro_kd/d_alpha,");
+          Serial.println("        yaw_kd, max_tilt, ramp_time, pitch_offset,");
+          Serial.println("        pitch_cmd_rate_limit, sensor_timeout");
+        }
+
+        idx = 0;
+      }
+    } else if (idx < sizeof(cmd) - 1) {
+      cmd[idx++] = c;
+    }
+  }
 }
