@@ -319,11 +319,55 @@ a{color:#58a6ff;text-decoration:none}
   </div>
 </div>
 
+<!-- Page 5: CoG Debug -->
+  <div class="page" id="page-cog">
+    <div class="params">
+      <h3>CoG自适应状态 <span id="cog-status" class="state off">未激活</span></h3>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;font-size:10px;margin-top:6px">
+        <div><span style="color:#8b949e">调节中:</span> <span id="cog-active" style="color:#f85149">否</span></div>
+        <div><span style="color:#8b949e">摇杆输入:</span> <span id="cog-joy" style="color:#8b949e">无</span></div>
+        <div><span style="color:#8b949e">|LQR_u|&lt;5:</span> <span id="cog-cond-lqr" style="color:#8b949e">--</span></div>
+        <div><span style="color:#8b949e">|速度|&lt;1:</span> <span id="cog-cond-spd" style="color:#8b949e">--</span></div>
+      </div>
+    </div>
+    <div class="params">
+      <h3>实时数值</h3>
+      <div class="ctrl-bar"><span class="lbl">distance_ctrl</span><div class="bar"><div class="bar-fill" id="cog-bar-dist"></div></div><span class="val" id="cog-val-dist">0</span></div>
+      <div class="ctrl-bar"><span class="lbl">adjustment</span><div class="bar"><div class="bar-fill" id="cog-bar-adj"></div></div><span class="val" id="cog-val-adj">0</span></div>
+      <div class="ctrl-bar"><span class="lbl">LQR_u</span><div class="bar"><div class="bar-fill" id="cog-bar-lqr"></div></div><span class="val" id="cog-val-lqr">0</span></div>
+      <div class="ctrl-bar"><span class="lbl">speed</span><div class="bar"><div class="bar-fill" id="cog-bar-spd"></div></div><span class="val" id="cog-val-spd">0</span></div>
+    </div>
+    <div class="params">
+      <h3>当前参数</h3>
+      <div style="font-size:10px;display:grid;grid-template-columns:repeat(2,1fr);gap:6px">
+        <div>pitch_offset: <span id="cog-pofs" style="font-family:monospace;color:#58a6ff">--</span>°</div>
+        <div>zeropoint_kp: <span id="cog-zp-kp" style="font-family:monospace;color:#58a6ff">--</span></div>
+      </div>
+    </div>
+    <div class="curve">
+      <h4>pitch_offset 变化曲线 <span style="color:#58a6ff">偏移(蓝)</span> <span style="color:#3fb950">调节量(绿)</span></h4>
+      <canvas id="cog-curve-canvas"></canvas>
+    </div>
+    <div class="params">
+      <h3>条件检查说明</h3>
+      <div style="font-size:9px;color:#8b949e;line-height:1.6">
+        <div>CoG自适应只在以下全部条件满足时运行：</div>
+        <div>1. |LQR_u| &lt; 5.0 (输出较小)</div>
+        <div>2. 无摇杆输入 (静止状态)</div>
+        <div>3. |速度| &lt; 1.0 rad/s (低速)</div>
+        <div>4. 轮子未离地</div>
+        <div style="margin-top:4px;color:#f0883e">调试技巧：观察distance_ctrl，持续正值表示CoG偏后</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="nav">
   <button class="active" onclick="goTab(0)">首页</button>
   <button onclick="goTab(1)">传感器</button>
   <button onclick="goTab(2)">控制</button>
   <button onclick="goTab(3)">调参</button>
+  <button onclick="goTab(4)">CoG</button>
 </div>
 
 <div class="footer">
@@ -593,6 +637,49 @@ function handleTelem(d) {
   document.getElementById('s-lifted').textContent = d.lifted?'是':'否';
   document.getElementById('s-lifted').className = d.lifted?'state err':'state off';
 
+  // CoG debug page
+  if(d.cog_active!==undefined){
+    const cogActive = d.cog_active===1;
+    document.getElementById('cog-active').textContent = cogActive?'是':'否';
+    document.getElementById('cog-active').style.color = cogActive?'#3fb950':'#f85149';
+    document.getElementById('cog-joy').textContent = d.cog_joy?'有':'无';
+    document.getElementById('cog-joy').style.color = d.cog_joy?'#f85149':'#8b949e';
+    // Condition checks
+    const lqrOk = Math.abs(d.cog_lqr_u||0) < 5.0;
+    const spdOk = Math.abs(d.cog_speed||0) < 1.0;
+    document.getElementById('cog-cond-lqr').textContent = lqrOk?'✓':'✗';
+    document.getElementById('cog-cond-lqr').style.color = lqrOk?'#3fb950':'#f85149';
+    document.getElementById('cog-cond-spd').textContent = spdOk?'✓':'✗';
+    document.getElementById('cog-cond-spd').style.color = spdOk?'#3fb950':'#f85149';
+    // Update bars
+    updateCogBar('dist', d.cog_dist_ctrl||0, 6);
+    updateCogBar('adj', (d.cog_adj||0)*100, 0.5);  // scale up for visibility
+    updateCogBar('lqr', d.cog_lqr_u||0, 8);
+    updateCogBar('spd', d.cog_speed||0, 5);
+    // Update values
+    document.getElementById('cog-val-dist').textContent = (d.cog_dist_ctrl||0).toFixed(2);
+    document.getElementById('cog-val-adj').textContent = (d.cog_adj||0).toFixed(6);
+    document.getElementById('cog-val-lqr').textContent = (d.cog_lqr_u||0).toFixed(2);
+    document.getElementById('cog-val-spd').textContent = (d.cog_speed||0).toFixed(2);
+    // Update status
+    const statusEl = document.getElementById('cog-status');
+    if(cogActive){
+      statusEl.textContent = '激活';
+      statusEl.className = 'state on';
+    }else{
+      statusEl.textContent = '未激活';
+      statusEl.className = 'state off';
+    }
+    // Update curve data
+    cogCurveData.pitchOffset.push(d.pofs||0);
+    cogCurveData.adjustment.push((d.cog_adj||0)*100);  // scale up for visibility
+    if(cogCurveData.pitchOffset.length>maxPoints){
+      cogCurveData.pitchOffset.shift();
+      cogCurveData.adjustment.shift();
+    }
+    drawCogCurve();
+  }
+
   // Tuning page curve
   if(d.pitch_deg!=null && d.lqr_comp!=null){
     curveData.pitch.push(d.pitch_deg);
@@ -632,6 +719,66 @@ function updateCtrlBar(id, val, limit){
   if(pctEl) pctEl.textContent = Math.round(absVal/limit*100) + '%';
 }
 
+function updateCogBar(id, val, limit){
+  if(val==null)return;
+  const absVal = Math.abs(val);
+  const pct = Math.min(absVal / limit * 100, 100);
+  const bar = document.getElementById('cog-bar-'+id);
+  if(bar){
+    bar.style.width = pct + '%';
+    bar.style.left = val < 0 ? (50 - pct/2) + '%' : '50%';
+  }
+}
+
+// CoG curve data and canvas
+const cogCurveData = {pitchOffset:[], adjustment:[]};
+const cogCurveCanvas = document.getElementById('cog-curve-canvas');
+const cogCurveCtx = cogCurveCanvas.getContext('2d');
+
+function resizeCogCurve(){
+  const r = cogCurveCanvas.getBoundingClientRect();
+  if(r.width>0 && r.height>0){cogCurveCanvas.width=r.width;cogCurveCanvas.height=r.height;}
+}
+resizeCogCurve();
+new ResizeObserver(resizeCogCurve).observe(cogCurveCanvas);
+
+function drawCogCurve(){
+  const w=cogCurveCanvas.width, h=cogCurveCanvas.height;
+  if(w===0||h===0)return;
+  cogCurveCtx.fillStyle='#0d1117';
+  cogCurveCtx.fillRect(0,0,w,h);
+  if(cogCurveData.pitchOffset.length<2)return;
+
+  // Zero line
+  cogCurveCtx.strokeStyle='#30363d';
+  cogCurveCtx.beginPath();
+  cogCurveCtx.moveTo(0,h/2);cogCurveCtx.lineTo(w,h/2);
+  cogCurveCtx.stroke();
+
+  // pitch_offset (blue)
+  const pofsLimit = 15;  // ±15 degrees
+  cogCurveCtx.strokeStyle='#58a6ff';
+  cogCurveCtx.lineWidth=1.5;
+  cogCurveCtx.beginPath();
+  for(let i=0;i<cogCurveData.pitchOffset.length;i++){
+    const x=(i/(maxPoints-1))*w;
+    const y=h/2 - (cogCurveData.pitchOffset[i]/pofsLimit)*(h/2);
+    if(i===0)cogCurveCtx.moveTo(x,y);else cogCurveCtx.lineTo(x,y);
+  }
+  cogCurveCtx.stroke();
+
+  // adjustment (green, scaled)
+  const adjLimit = 0.5;  // ±0.5 * 100 = ±50 display units
+  cogCurveCtx.strokeStyle='#3fb950';
+  cogCurveCtx.beginPath();
+  for(let i=0;i<cogCurveData.adjustment.length;i++){
+    const x=(i/(maxPoints-1))*w;
+    const y=h/2 - (cogCurveData.adjustment[i]/adjLimit)*(h/2);
+    if(i===0)cogCurveCtx.moveTo(x,y);else cogCurveCtx.lineTo(x,y);
+  }
+  cogCurveCtx.stroke();
+}
+
 function handleParams(m) {
   if(m.balance){
     for(const[k,v] of Object.entries(m.balance)){
@@ -640,6 +787,15 @@ function handleParams(m) {
       // Update sliders
       const sl = document.getElementById('sl-'+k);
       if(sl){sl.value=v;document.getElementById('sl-val-'+k).textContent=v.toFixed(2);}
+      // Update CoG page params
+      if(k==='pitch_offset'){
+        const cogPofs = document.getElementById('cog-pofs');
+        if(cogPofs) cogPofs.textContent = v.toFixed(4);
+      }
+      if(k==='zeropoint_kp'){
+        const cogZpKp = document.getElementById('cog-zp-kp');
+        if(cogZpKp) cogZpKp.textContent = v.toFixed(6);
+      }
     }
   }
   if(m.ctrl){

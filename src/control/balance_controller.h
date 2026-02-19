@@ -3,8 +3,13 @@
 #include <SimpleFOC.h>
 #include <cmath>
 
+#include "balance_controller_defaults.h"
+
 namespace wheelsbot {
 namespace control {
+
+// Import default parameters
+using Defaults = BalanceControllerDefaults;
 
 // ============================================================
 // Input / Output / Debug structs
@@ -103,6 +108,14 @@ struct BalanceDebug {
   bool running;
   uint32_t fault_flags;
   bool wheel_lifted;           // Wheel lift detected this cycle
+
+  // CoG 自适应调试 (新增)
+  bool cog_adapt_active;        // 是否正在调节
+  float cog_distance_ctrl;      // 当前 distance_ctrl 值
+  float cog_adjustment;         // 本次调节量
+  float cog_lqr_u;              // 当前 LQR_u 值
+  float cog_speed;              // 当前速度
+  bool cog_has_joystick;        // 是否有摇杆输入
 };
 
 // ============================================================
@@ -116,66 +129,62 @@ class BalanceController {
  public:
   struct Params {
     // Angle PID (primary restoring torque)
-    // Reduced for lightweight high-CoG robot to avoid over-reaction
-    float angle_kp = 2.5f;
+    float angle_kp = Defaults::angle_kp;
 
-    // Gyro PID (pitch rate damping)
-    // Increased for hard tires to suppress stick-slip oscillation
-    float gyro_kp = 0.40f;
+    // Gyro PID (pitch rate damping, input unit: deg/s)
+    float gyro_kp = Defaults::gyro_kp;
 
     // Distance PID (position hold / anti-drift)
-    // Tuned for hard off-road tires
-    float distance_kp = 0.55f;
+    float distance_kp = Defaults::distance_kp;
 
     // Speed PID (velocity tracking)
-    // Tuned for hard tires - helps stabilize stick-slip
-    float speed_kp = 0.45f;
+    float speed_kp = Defaults::speed_kp;
 
     // Yaw angle PID (heading hold)
-    float yaw_angle_kp = 1.0f;
+    float yaw_angle_kp = Defaults::yaw_angle_kp;
 
     // Yaw gyro PID (yaw rate damping)
-    float yaw_gyro_kp = 0.04f;
+    float yaw_gyro_kp = Defaults::yaw_gyro_kp;
 
     // LQR output integral compensation (static friction)
-    // CRITICAL: Reduced for hard tires to prevent stick-slip oscillation
-    float lqr_u_kp = 0.5f;
-    float lqr_u_ki = 5.0f;
+    float lqr_u_kp = Defaults::lqr_u_kp;
+    float lqr_u_ki = Defaults::lqr_u_ki;
 
     // Zero-point adaptation (CoG self-adjust)
-    float zeropoint_kp = 0.01f;
+    float zeropoint_kp = Defaults::zeropoint_kp;
 
     // Low-pass filter time constants
-    float lpf_target_vel_tf = 0.2f;
-    float lpf_zeropoint_tf  = 0.1f;
+    float lpf_target_vel_tf = Defaults::lpf_target_vel_tf;
+    float lpf_zeropoint_tf  = Defaults::lpf_zeropoint_tf;
 
     // Safety
-    // Reduced tilt threshold for high-CoG robot (harder to recover)
-    float max_tilt_deg = 20.0f;      // Tilt protection threshold (degrees)
-    float pitch_offset = 0.0f;       // Static pitch offset (degrees)
+    float max_tilt_deg = Defaults::max_tilt_deg;
+    float pitch_offset = Defaults::pitch_offset;
 
     // Output limits
-    // Reduced for lightweight robot to prevent over-shooting
-    float pid_limit = 6.0f;          // Individual PID output limit
-    float pid_ramp  = 100000.0f;     // PID output ramp (effectively unlimited)
+    float pid_limit = Defaults::pid_limit;
+    float pid_ramp  = Defaults::pid_ramp;
 
     // Wheel lift detection thresholds
-    float lift_accel_thresh = 50.0f;  // Angular acceleration threshold (rad/s^2)
-    float lift_vel_thresh   = 150.0f;  // Angular velocity threshold (rad/s)
+    float lift_accel_thresh = Defaults::lift_accel_thresh;
+    float lift_vel_thresh   = Defaults::lift_vel_thresh;
   };
 
   BalanceController()
-    : pid_angle_     {6.0f,   0, 0, 100000, 8},
-      pid_gyro_      {0.06f,  0, 0, 100000, 8},
-      pid_distance_  {0.5f,   0, 0, 100000, 8},
-      pid_speed_     {0.7f,   0, 0, 100000, 8},
-      pid_yaw_angle_ {1.0f,   0, 0, 100000, 8},
-      pid_yaw_gyro_  {0.04f,  0, 0, 100000, 8},
-      pid_lqr_u_     {1.0f,  15, 0, 100000, 8},
-      pid_zeropoint_ {0.01f, 0, 0, 100000, 4},
+    : pid_angle_     {1, 0, 0, 100000, 1},
+      pid_gyro_      {1, 0, 0, 100000, 1},
+      pid_distance_  {1, 0, 0, 100000, 1},
+      pid_speed_     {1, 0, 0, 100000, 1},
+      pid_yaw_angle_ {1, 0, 0, 100000, 1},
+      pid_yaw_gyro_  {1, 0, 0, 100000, 1},
+      pid_lqr_u_     {1, 1, 0, 100000, 1},
+      pid_zeropoint_ {1, 0, 0, 100000, 1},
       lpf_target_vel_{0.2f},
       lpf_zeropoint_ {0.1f}
-  {}
+  {
+    // Sync all PID objects to Params defaults
+    setParams(params_);
+  }
 
   // Main control step
   void step(const BalanceInput& in, BalanceOutput& out) {
@@ -229,11 +238,18 @@ class BalanceController {
     // --- LQR-decomposed balance ---
     float angle_error = pitch_deg - params_.pitch_offset;
     float angle_ctrl    = pid_angle_(angle_error);
-    float gyro_ctrl     = pid_gyro_(in.pitch_rate);
+    // Convert pitch_rate from rad/s to deg/s to match angle units
+    float pitch_rate_dps = in.pitch_rate * (180.0f / PI_F);
+    float gyro_ctrl     = pid_gyro_(pitch_rate_dps);
 
     // --- Distance and speed ---
     float distance = in.wheel_position;
     float speed    = in.wheel_velocity;
+
+    // Initialize distance zero-point on first cycle (sentinel = -256)
+    if (distance_zeropoint_ < -200.0f) {
+      distance_zeropoint_ = distance;
+    }
 
     // Smooth joystick velocity input
     float target_vel_filtered = lpf_target_vel_(in.target_velocity);
@@ -246,7 +262,8 @@ class BalanceController {
     if (has_joystick_input) {
       // Reset distance zero-point while moving
       distance_zeropoint_ = distance;
-      resetPid(pid_lqr_u_);  // Clear output integral
+      // Don't reset pid_lqr_u_ here — preserve integral for static friction
+      // compensation (matches reference: integral memory across movements)
     }
 
     // Stop-and-lock: after joystick release, wait for speed < 0.5 before locking
@@ -290,15 +307,39 @@ class BalanceController {
     debug_.lqr_u_raw = lqr_u;
 
     // --- Output integral compensation + CoG self-adaptation ---
-    if (fabsf(lqr_u) < 5.0f && !has_joystick_input
-        && fabsf(speed) < 1.0f && !wheel_lifted) {
+    // Only adapt when robot is in steady state (no joystick input, low speed, small output)
+    // distance_ctrl reflects steady-state torque needed to hold position
+    // Persistent non-zero distance_ctrl indicates CoG offset (not transient disturbance)
+    bool cog_active = fabsf(lqr_u) < 5.0f && !has_joystick_input
+        && fabsf(speed) < 1.0f && !wheel_lifted;
+    if (cog_active) {
       lqr_u = pid_lqr_u_(lqr_u);
-      // CoG adaptation: DISABLED due to unit mismatch bug
-      // TODO: Fix unit conversion (distance_ctrl is voltage, pitch_offset is degrees)
-      // params_.pitch_offset += pid_zeropoint_(lpf_zeropoint_(distance_ctrl));
+      float distance_ctrl_for_cog = distance_ctrl;
+      const float kDeadband = 0.06f;
+      if (fabsf(distance_ctrl) < kDeadband) {
+        distance_ctrl_for_cog = 0.0f;
+      }
+      float zeropoint_adjustment = pid_zeropoint_(lpf_zeropoint_(distance_ctrl_for_cog));
+      params_.pitch_offset -= zeropoint_adjustment;
+      // Saturate to prevent runaway accumulation (±15° for high-CoG robot)
+      if (params_.pitch_offset > 15.0f) params_.pitch_offset = 15.0f;
+      if (params_.pitch_offset < -15.0f) params_.pitch_offset = -15.0f;
+      // Debug: record CoG adaptation
+      debug_.cog_adapt_active = true;
+      debug_.cog_adjustment = zeropoint_adjustment;
     } else {
-      resetPid(pid_lqr_u_);
+      debug_.cog_adapt_active = false;
+      debug_.cog_adjustment = 0.0f;
     }
+    // Debug: always record these values
+    debug_.cog_distance_ctrl = distance_ctrl;
+    debug_.cog_lqr_u = lqr_u;
+    debug_.cog_speed = speed;
+    debug_.cog_has_joystick = has_joystick_input;
+    // No else-reset for pid_lqr_u_: preserve integral across non-steady-state
+    // periods. Static friction compensation doesn't change when the robot
+    // moves, so the accumulated integral should survive transitions.
+    // Full reset only happens in resetIntegrators() (disable / fault / tilt).
 
     // --- Yaw control ---
     // Only enable heading hold when there's active yaw input
