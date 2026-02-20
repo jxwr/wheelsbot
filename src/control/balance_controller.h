@@ -280,6 +280,22 @@ class BalanceController {
       distance_zeropoint_ = distance;
     }
 
+    // Steady-state drift compensation: slowly pull zeropoint toward current position
+    // to prevent long-term accumulation of (distance - distance_zeropoint_)
+    // This only happens when standing still for extended periods
+    const float kSteadySpeedThresh = 0.2f;   // Considered "steady" when |speed| < 0.2 rad/s
+    const float kMaxZeropointDrift = 0.001f; // Max drift per cycle (~0.2 rad/s at 200Hz)
+    if (!has_joystick_input && fabsf(speed) < kSteadySpeedThresh) {
+      float drift = distance - distance_zeropoint_;
+      if (fabsf(drift) > kMaxZeropointDrift) {
+        // Slowly reduce the accumulated error
+        distance_zeropoint_ += (drift > 0 ? kMaxZeropointDrift : -kMaxZeropointDrift);
+      } else {
+        // Close enough, snap to current
+        distance_zeropoint_ = distance;
+      }
+    }
+
     had_joystick_input_ = has_joystick_input;
 
     float distance_ctrl = pid_distance_(distance - distance_zeropoint_);
@@ -314,12 +330,7 @@ class BalanceController {
         && fabsf(speed) < 1.0f && !wheel_lifted;
     if (cog_active) {
       lqr_u = pid_lqr_u_(lqr_u);
-      float distance_ctrl_for_cog = distance_ctrl;
-      const float kDeadband = 0.06f;
-      if (fabsf(distance_ctrl) < kDeadband) {
-        distance_ctrl_for_cog = 0.0f;
-      }
-      float zeropoint_adjustment = pid_zeropoint_(lpf_zeropoint_(distance_ctrl_for_cog));
+      float zeropoint_adjustment = pid_zeropoint_(lpf_zeropoint_(distance_ctrl));
       params_.pitch_offset -= zeropoint_adjustment;
       // Saturate to prevent runaway accumulation (±15° for high-CoG robot)
       if (params_.pitch_offset > 15.0f) params_.pitch_offset = 15.0f;

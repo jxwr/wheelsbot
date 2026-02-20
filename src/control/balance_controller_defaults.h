@@ -61,7 +61,7 @@ struct BalanceControllerDefaults {
     static constexpr float lift_vel_thresh   = 150.0f; // Angular velocity threshold (rad/s)
 
     // CoG adaptation deadband (prevent noise accumulation)
-    static constexpr float cog_deadband = 0.06f;       // Only adapt when |distance_ctrl| > 0.06V
+    static constexpr float cog_deadband = 0.05f;       // Only adapt when |distance_ctrl| > 0.06V
 };
 
 }  // namespace control

@@ -462,14 +462,15 @@ void setup() {
   ArduinoOTA.begin();
   Serial.println("OTA Ready - IP: " + WiFi.softAPIP().toString());
 
-  // Load balance controller parameters from flash (if exists)
-  BalanceController::Params params;
-  if (loadBalanceParams(params)) {
-    g_ctx->balance.setParams(params);
-    Serial.println("Loaded balance params from flash");
-  } else {
-    Serial.println("Using default balance params (flash unavailable)");
-  }
+  // Use code defaults; load from flash only via serial "load" command
+  // BalanceController::Params params;
+  // if (loadBalanceParams(params)) {
+  //   g_ctx->balance.setParams(params);
+  //   Serial.println("Loaded balance params from flash");
+  // } else {
+  //   Serial.println("Using default balance params (flash unavailable)");
+  // }
+  Serial.println("Using code-default balance params (flash load disabled)");
 
   // Start tasks — core assignment:
   // Core 0: imuTask(prio 5), balanceTask(prio 4), wifiDebugTask(prio 1), ledTask(prio 0)
@@ -533,7 +534,7 @@ void handleSerialCmd(const char* cmd) {
     Serial.println("");
     Serial.println("Params: angle_kp, gyro_kp, distance_kp, speed_kp,");
     Serial.println("         yaw_angle_kp, yaw_gyro_kp, lqr_u_kp, lqr_u_ki,");
-    Serial.println("         max_tilt_deg, pitch_offset, pid_limit");
+    Serial.println("         zeropoint_kp, max_tilt_deg, pitch_offset, pid_limit");
     return;
   }
 
@@ -549,6 +550,7 @@ void handleSerialCmd(const char* cmd) {
     Serial.printf("yaw_gyro_kp=%.4f\n", p.yaw_gyro_kp);
     Serial.printf("lqr_u_kp=%.2f\n", p.lqr_u_kp);
     Serial.printf("lqr_u_ki=%.2f\n", p.lqr_u_ki);
+    Serial.printf("zeropoint_kp=%.4f\n", p.zeropoint_kp);
     Serial.printf("max_tilt_deg=%.1f\n", p.max_tilt_deg);
     Serial.printf("pitch_offset=%.2f\n", p.pitch_offset);
     Serial.printf("pid_limit=%.2f\n", p.pid_limit);
@@ -658,6 +660,7 @@ void handleSerialCmd(const char* cmd) {
   else if (strcmp(key, "yaw_gyro_kp") == 0) { p.yaw_gyro_kp = isQuery ? p.yaw_gyro_kp : value; found = true; }
   else if (strcmp(key, "lqr_u_kp") == 0) { p.lqr_u_kp = isQuery ? p.lqr_u_kp : value; found = true; }
   else if (strcmp(key, "lqr_u_ki") == 0) { p.lqr_u_ki = isQuery ? p.lqr_u_ki : value; found = true; }
+  else if (strcmp(key, "zeropoint_kp") == 0) { p.zeropoint_kp = isQuery ? p.zeropoint_kp : value; found = true; }
   else if (strcmp(key, "max_tilt_deg") == 0) { p.max_tilt_deg = isQuery ? p.max_tilt_deg : value; found = true; }
   else if (strcmp(key, "pitch_offset") == 0) { p.pitch_offset = isQuery ? p.pitch_offset : value; found = true; }
   else if (strcmp(key, "pid_limit") == 0) { p.pid_limit = isQuery ? p.pid_limit : value; found = true; }
@@ -677,6 +680,7 @@ void handleSerialCmd(const char* cmd) {
       else if (strcmp(key, "yaw_gyro_kp") == 0) val = p.yaw_gyro_kp;
       else if (strcmp(key, "lqr_u_kp") == 0) val = p.lqr_u_kp;
       else if (strcmp(key, "lqr_u_ki") == 0) val = p.lqr_u_ki;
+      else if (strcmp(key, "zeropoint_kp") == 0) val = p.zeropoint_kp;
       else if (strcmp(key, "max_tilt_deg") == 0) val = p.max_tilt_deg;
       else if (strcmp(key, "pitch_offset") == 0) val = p.pitch_offset;
       else if (strcmp(key, "pid_limit") == 0) val = p.pid_limit;
