@@ -254,7 +254,9 @@ class BalanceController {
     // Smooth joystick velocity input
     float target_vel_filtered = lpf_target_vel_(in.target_velocity);
     // Convert m/s to rad/s for wheel speed reference
-    float target_wheel_vel = target_vel_filtered / WHEEL_RADIUS;
+    // Apply motion scaling for better control feel (similar to wheel-leg's 0.1f factor)
+    const float kMotionScaling = 0.8f;  // < 1.0 for softer response, 1.0 for linear
+    float target_wheel_vel = (target_vel_filtered / WHEEL_RADIUS) * kMotionScaling;
 
     // Distance zero-point management
     bool has_joystick_input = (fabsf(in.target_velocity) > 0.01f);
@@ -262,8 +264,8 @@ class BalanceController {
     if (has_joystick_input) {
       // Reset distance zero-point while moving
       distance_zeropoint_ = distance;
-      // Don't reset pid_lqr_u_ here — preserve integral for static friction
-      // compensation (matches reference: integral memory across movements)
+      // Fix: 运动时清除 pid_lqr_u 积分，匹配参考项目行为
+      resetPid(pid_lqr_u_);
     }
 
     // Stop-and-lock: after joystick release, wait for speed < 0.5 before locking
@@ -283,8 +285,8 @@ class BalanceController {
     // Steady-state drift compensation: slowly pull zeropoint toward current position
     // to prevent long-term accumulation of (distance - distance_zeropoint_)
     // This only happens when standing still for extended periods
-    const float kSteadySpeedThresh = 0.2f;   // Considered "steady" when |speed| < 0.2 rad/s
-    const float kMaxZeropointDrift = 0.001f; // Max drift per cycle (~0.2 rad/s at 200Hz)
+    constexpr float kSteadySpeedThresh = 0.2f;   // Considered "steady" when |speed| < 0.2 rad/s
+    constexpr float kMaxZeropointDrift = 0.001f; // Max drift per cycle (~0.2 rad/s at 200Hz)
     if (!has_joystick_input && fabsf(speed) < kSteadySpeedThresh) {
       float drift = distance - distance_zeropoint_;
       if (fabsf(drift) > kMaxZeropointDrift) {
@@ -299,8 +301,7 @@ class BalanceController {
     had_joystick_input_ = has_joystick_input;
 
     float distance_ctrl = pid_distance_(distance - distance_zeropoint_);
-    // Note: target_wheel_vel is already in rad/s (converted from m/s using WHEEL_RADIUS)
-    // No additional scaling needed (0.1f factor was for wheel-leg robot's raw joystick values)
+    // 速度控制：当前速度 - 目标速度
     float speed_ctrl    = pid_speed_(speed - target_wheel_vel);
 
     // --- Wheel lift detection ---
@@ -323,18 +324,19 @@ class BalanceController {
     debug_.lqr_u_raw = lqr_u;
 
     // --- Output integral compensation + CoG self-adaptation ---
+    // CoG 自适应阈值：3.0 rad/s，允许在较低速时也开始自适应
     // Only adapt when robot is in steady state (no joystick input, low speed, small output)
     // distance_ctrl reflects steady-state torque needed to hold position
     // Persistent non-zero distance_ctrl indicates CoG offset (not transient disturbance)
     bool cog_active = fabsf(lqr_u) < 5.0f && !has_joystick_input
-        && fabsf(speed) < 1.0f && !wheel_lifted;
+        && fabsf(speed) < 3.0f && !wheel_lifted;
     if (cog_active) {
       lqr_u = pid_lqr_u_(lqr_u);
       float zeropoint_adjustment = pid_zeropoint_(lpf_zeropoint_(distance_ctrl));
       params_.pitch_offset -= zeropoint_adjustment;
       // Saturate to prevent runaway accumulation (±15° for high-CoG robot)
-      if (params_.pitch_offset > 15.0f) params_.pitch_offset = 15.0f;
-      if (params_.pitch_offset < -15.0f) params_.pitch_offset = -15.0f;
+      if (params_.pitch_offset > 10.0f) params_.pitch_offset = 10.0f;
+      if (params_.pitch_offset < -10.0f) params_.pitch_offset = -10.0f;
       // Debug: record CoG adaptation
       debug_.cog_adapt_active = true;
       debug_.cog_adjustment = zeropoint_adjustment;
@@ -488,7 +490,7 @@ class BalanceController {
 
  private:
   static constexpr float PI_F = 3.14159265358979f;
-  static constexpr float WHEEL_RADIUS = 0.035f;  // 70mm diameter wheels
+  static constexpr float WHEEL_RADIUS = 0.03f;   // 60mm diameter wheels
 
   // Reset a PIDController by reconstructing it in-place (clears all internal state).
   // SimpleFOC 2.3.2 keeps error_prev/integral_prev/output_prev as protected,

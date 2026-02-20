@@ -49,10 +49,10 @@ a{color:#58a6ff;text-decoration:none}
 
 /* Joystick */
 .joy-area{background:#0d1117;border-radius:6px;border:1px solid #30363d;padding:8px;margin-bottom:6px}
-.joy-row{display:flex;justify-content:space-around;gap:10px}
-.joystick{width:70px;height:70px;background:#21262d;border:2px solid #30363d;border-radius:50%;position:relative;touch-action:none}
+.joy-row{display:flex;justify-content:space-around;gap:15px}
+.joystick{width:105px;height:105px;background:#21262d;border:2px solid #30363d;border-radius:50%;position:relative;touch-action:none}
 .joystick.active{border-color:#58a6ff}
-.joystick .knob{width:26px;height:26px;background:#58a6ff;border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 2px 6px rgba(88,166,255,0.4)}
+.joystick .knob{width:39px;height:39px;background:#58a6ff;border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 2px 6px rgba(88,166,255,0.4)}
 .joystick .lbl{position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:#8b949e;white-space:nowrap}
 .joy-val{text-align:center;font-size:10px;color:#8b949e;margin-top:18px}
 .ctrl-btns{display:flex;gap:4px;margin-top:6px}
@@ -70,6 +70,7 @@ a{color:#58a6ff;text-decoration:none}
 .param-item input{width:45px;background:#161b22;border:1px solid #30363d;color:#c9d1d9;padding:2px 4px;border-radius:3px;font-size:10px}
 .param-item input:focus{outline:none;border-color:#58a6ff}
 .btn-set{padding:2px 5px;background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:3px;font-size:8px;cursor:pointer}
+.realtime-val{color:#58a6ff;font-family:monospace;font-size:9px;margin-left:2px}
 
 /* Sensor bars */
 .bar-row{display:flex;align-items:center;gap:4px;margin-bottom:4px}
@@ -138,6 +139,9 @@ a{color:#58a6ff;text-decoration:none}
   <div class="telem-box"><span class="lbl">左电机</span><span class="val" id="t-lm">--</span><span class="unit">V</span></div>
   <div class="telem-box"><span class="lbl">右电机</span><span class="val" id="t-rm">--</span><span class="unit">V</span></div>
   <div class="telem-box"><span class="lbl">状态</span><span class="val" id="t-state">--</span></div>
+  <div class="telem-box"><span class="lbl">CoG</span><span class="val" id="t-cog-active">--</span></div>
+  <div class="telem-box"><span class="lbl">调节</span><span class="val" id="t-cog-adj">--</span><span class="unit">°</span></div>
+  <div class="telem-box"><span class="lbl">零点</span><span class="val" id="t-pofs">--</span><span class="unit">°</span></div>
 </div>
 
 <div class="main">
@@ -191,6 +195,28 @@ a{color:#58a6ff;text-decoration:none}
       <div class="joy-val">
         <span id="joy-fb-val">0.0</span> &nbsp; <span id="joy-lr-val">0.0</span>
       </div>
+      <div class="joy-debug" style="display:flex;justify-content:space-around;margin-top:8px;padding-top:6px;border-top:1px solid #30363d;font-size:10px">
+        <div style="text-align:center">
+          <div style="color:#8b949e">目标速度</div>
+          <div id="joy-target-vel" style="font-family:monospace;color:#58a6ff">0.00 <span style="color:#484f58">m/s</span></div>
+        </div>
+        <div style="text-align:center">
+          <div style="color:#8b949e">速度控制</div>
+          <div id="joy-spd-ctrl" style="font-family:monospace">0.00 <span style="color:#484f58">V</span></div>
+        </div>
+      </div>
+      <div class="joy-limits" style="display:flex;justify-content:space-around;margin-top:6px;font-size:10px">
+        <div style="text-align:center">
+          <div style="color:#8b949e">最大速度</div>
+          <input type="number" id="max-vel" value="1.0" step="0.1" min="0.1" max="2.0" style="width:50px;background:#161b22;border:1px solid #30363d;color:#c9d1d9;padding:2px 4px;border-radius:3px;text-align:center">
+          <span style="color:#484f58">m/s</span>
+        </div>
+        <div style="text-align:center">
+          <div style="color:#8b949e">最大转向</div>
+          <input type="number" id="max-yaw" value="8.0" step="0.5" min="0.5" max="10.0" style="width:50px;background:#161b22;border:1px solid #30363d;color:#c9d1d9;padding:2px 4px;border-radius:3px;text-align:center">
+          <span style="color:#484f58">rad/s</span>
+        </div>
+      </div>
       <div class="ctrl-btns">
         <button class="btn-stop" onclick="setBalance(0)">停止</button>
         <button class="btn-mode" id="btn-mode" onclick="toggleMode()">平衡</button>
@@ -201,15 +227,15 @@ a{color:#58a6ff;text-decoration:none}
     <div class="params">
       <h3>平衡参数</h3>
       <div class="param-grid">
-        <div class="param-item"><label>angle</label><input type="number" id="p-angle_kp" step="0.5"><button class="btn-set" onclick="setP('angle_kp')">设</button></div>
-        <div class="param-item"><label>gyro</label><input type="number" id="p-gyro_kp" step="0.01"><button class="btn-set" onclick="setP('gyro_kp')">设</button></div>
-        <div class="param-item"><label>distance</label><input type="number" id="p-distance_kp" step="0.1"><button class="btn-set" onclick="setP('distance_kp')">设</button></div>
-        <div class="param-item"><label>speed</label><input type="number" id="p-speed_kp" step="0.1"><button class="btn-set" onclick="setP('speed_kp')">设</button></div>
-        <div class="param-item"><label>yaw</label><input type="number" id="p-yaw_angle_kp" step="0.1"><button class="btn-set" onclick="setP('yaw_angle_kp')">设</button></div>
-        <div class="param-item"><label>lqr_u</label><input type="number" id="p-lqr_u_kp" step="0.1"><button class="btn-set" onclick="setP('lqr_u_kp')">设</button></div>
+        <div class="param-item"><label>angle <span id="v-angle" class="realtime-val">(0.0)</span></label><input type="number" id="p-angle_kp" step="0.5"><button class="btn-set" onclick="setP('angle_kp')">设</button></div>
+        <div class="param-item"><label>gyro <span id="v-gyro" class="realtime-val">(0.0)</span></label><input type="number" id="p-gyro_kp" step="0.01"><button class="btn-set" onclick="setP('gyro_kp')">设</button></div>
+        <div class="param-item"><label>distance <span id="v-dist" class="realtime-val">(0.0)</span></label><input type="number" id="p-distance_kp" step="0.1"><button class="btn-set" onclick="setP('distance_kp')">设</button></div>
+        <div class="param-item"><label>speed <span id="v-spd" class="realtime-val">(0.0)</span></label><input type="number" id="p-speed_kp" step="0.1"><button class="btn-set" onclick="setP('speed_kp')">设</button></div>
+        <div class="param-item"><label>yaw <span id="v-yaw" class="realtime-val">(0.0)</span></label><input type="number" id="p-yaw_angle_kp" step="0.1"><button class="btn-set" onclick="setP('yaw_angle_kp')">设</button></div>
+        <div class="param-item"><label>lqr_u <span id="v-lqr" class="realtime-val">(0.0)</span></label><input type="number" id="p-lqr_u_kp" step="0.1"><button class="btn-set" onclick="setP('lqr_u_kp')">设</button></div>
         <div class="param-item"><label>tilt</label><input type="number" id="p-max_tilt_deg" step="1"><button class="btn-set" onclick="setP('max_tilt_deg')">设</button></div>
         <div class="param-item"><label>limit</label><input type="number" id="p-pid_limit" step="0.5"><button class="btn-set" onclick="setP('pid_limit')">设</button></div>
-        <div class="param-item"><label>pitch偏移</label><input type="number" id="p-pitch_offset" step="0.1"><button class="btn-set" onclick="setP('pitch_offset')">设</button></div>
+        <div class="param-item"><label>pitch偏移 <span id="v-pofs" class="realtime-val">(0.0)</span></label><input type="number" id="p-pitch_offset" step="0.1"><button class="btn-set" onclick="setP('pitch_offset')">设</button></div>
       </div>
     </div>
 
@@ -583,10 +609,53 @@ function handleTelem(d) {
   setText('t-lm', d.lm!=null?d.lm.toFixed(1):'--');
   setText('t-rm', d.rm!=null?d.rm.toFixed(1):'--');
 
+  // Joystick debug: target_velocity and speed_contribution
+  const targetVelEl = document.getElementById('joy-target-vel');
+  const spdCtrlEl = document.getElementById('joy-spd-ctrl');
+  if(targetVelEl && d.target_vel!=null){
+    const tv = d.target_vel;
+    targetVelEl.innerHTML = tv.toFixed(2) + ' <span style="color:#484f58">m/s</span>';
+    targetVelEl.style.color = Math.abs(tv) < 0.01 ? '#8b949e' : (tv > 0 ? '#3fb950' : '#f0883e');
+  }
+  if(spdCtrlEl && d.spd!=null){
+    const sc = d.spd;
+    spdCtrlEl.innerHTML = sc.toFixed(2) + ' <span style="color:#484f58">V</span>';
+    spdCtrlEl.style.color = Math.abs(sc) < 0.1 ? '#8b949e' : (sc > 0 ? '#3fb950' : '#f85149');
+  }
+
+  // Realtime values in param labels
+  function setRealVal(id, val) {
+    const el = document.getElementById(id);
+    if(el) el.textContent = '(' + (val||0).toFixed(2) + ')';
+  }
+  setRealVal('v-angle', d.angle);
+  setRealVal('v-gyro', d.gyro);
+  setRealVal('v-dist', d.dist);
+  setRealVal('v-spd', d.spd);
+  setRealVal('v-yaw', d.yaw);
+  setRealVal('v-lqr', d.lqr_comp);
+  setRealVal('v-pofs', d.pofs);
+
   const state = document.getElementById('t-state');
   if(d.running){state.textContent='运行';state.className='val green';}
   else if(d.fault){state.textContent='故障';state.className='val red';}
   else{state.textContent='停止';state.className='val';}
+
+  // CoG adaptation status on telemetry bar
+  const cogActive = document.getElementById('t-cog-active');
+  const cogAdj = document.getElementById('t-cog-adj');
+  if(cogActive && d.cog_active!==undefined){
+    cogActive.textContent = d.cog_active?'激活':'待机';
+    cogActive.className = d.cog_active?'val green':'val';
+  }
+  if(cogAdj && d.cog_adj!==undefined){
+    cogAdj.textContent = (d.cog_adj*100).toFixed(2); // scale up for visibility
+  }
+  // pitch_offset display
+  const pofsEl = document.getElementById('t-pofs');
+  if(pofsEl && d.pofs!==undefined){
+    pofsEl.textContent = d.pofs.toFixed(2);
+  }
 
   if(window.update3D && d.pitch_deg!=null){
     window.update3D(d.pitch_deg, d.roll_deg||0, d.yr||0);
@@ -874,7 +943,7 @@ const joyLR = {el:document.getElementById('joy-lr'), x:0, y:0, active:false, id:
 
 function setupJoy(joy, isLR) {
   const knob = joy.el.querySelector('.knob');
-  const maxD = 22;
+  const maxD = 33;  // 1.5x of original 22
 
   function update() {
     knob.style.transform = `translate(calc(-50% + ${joy.x*maxD}px), calc(-50% + ${joy.y*maxD}px))`;
@@ -887,12 +956,13 @@ function setupJoy(joy, isLR) {
     const d = Math.sqrt(dx*dx+dy*dy);
     if(d > maxD){joy.x=dx/d*(maxD/(r.width/2));joy.y=dy/d*(maxD/(r.height/2));}
     else{joy.x=dx/(r.width/2);joy.y=dy/(r.height/2);}
-    if(isLR) joy.x = -joy.x;
+    // 先更新动画，保持方向一致
     update();
-    // Update display
+    // 发送命令时再反转（如果需要）
+    sendCmd();
+    // Update display - 对于左右摇杆，显示原始值
     const valEl = document.getElementById(isLR?'joy-lr-val':'joy-fb-val');
     if(valEl) valEl.textContent = (isLR?joy.x:(-joy.y)*0.5).toFixed(2);
-    sendCmd();
   }
 
   function end() {
@@ -941,9 +1011,13 @@ function sendCmd() {
   const now = Date.now();
   if(now - lastCmd < 50) return;
   lastCmd = now;
-  if(!joyFB.active && !joyLR.active) return;
-  const lin = -joyFB.y * 0.5;
-  const yaw = joyLR.x * 3.0;
+  // 从输入框读取最大速度和最大转向
+  const maxVel = parseFloat(document.getElementById('max-vel').value) || 0.2;
+  const maxYaw = parseFloat(document.getElementById('max-yaw').value) || 2.0;
+  // 前进/后退：Y轴向上为正（前进）
+  const lin = joyFB.y * maxVel;
+  // 左右转向：X轴向右为正（左转），取反
+  const yaw = -joyLR.x * maxYaw;
   send({type:'set_target', key:'linear_vel', value:lin});
   send({type:'set_target', key:'yaw_rate', value:yaw});
 }

@@ -126,7 +126,8 @@ static void sendTelemetry() {
     "\"lm\":%.3f,\"rm\":%.3f,"
     "\"state\":%d,\"fault\":%u,\"lifted\":%d,"
     "\"cog_active\":%d,\"cog_dist_ctrl\":%.4f,\"cog_adj\":%.6f,"
-    "\"cog_lqr_u\":%.4f,\"cog_speed\":%.4f,\"cog_joy\":%d}",
+    "\"cog_lqr_u\":%.4f,\"cog_speed\":%.4f,\"cog_joy\":%d,"
+    "\"target_vel\":%.3f}",
     (unsigned long)millis(),
     dbg.ax, dbg.ay, dbg.az,
     dbg.gx, dbg.gy, dbg.gz,
@@ -142,7 +143,8 @@ static void sendTelemetry() {
     dbg.running ? 1 : 0, (unsigned)dbg.fault_flags,
     dbg.wheel_lifted ? 1 : 0,
     dbg.cog_adapt_active ? 1 : 0, dbg.cog_distance_ctrl, dbg.cog_adjustment,
-    dbg.cog_lqr_u, dbg.cog_speed, dbg.cog_has_joystick ? 1 : 0);
+    dbg.cog_lqr_u, dbg.cog_speed, dbg.cog_has_joystick ? 1 : 0,
+    s_ctx->target_linear_vel);
 
   ws.textAll(buf);
 }

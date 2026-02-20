@@ -12,15 +12,14 @@ namespace control {
 struct BalanceControllerDefaults {
     // Angle PID (primary restoring torque)
     // Tuned for lightweight high-CoG robot to avoid over-reaction
-    static constexpr float angle_kp = 2.5f;
+    static constexpr float angle_kp = 1.0f;
 
     // Gyro PID (pitch rate damping, input unit: deg/s)
-    // Reference wheel-leg robot uses 0.06; slightly higher for heavier high-CoG body
-    static constexpr float gyro_kp = 0.08f;
+    static constexpr float gyro_kp = 0.06f;
 
     // Distance PID (position hold / anti-drift)
     // Tuned for hard off-road tires - higher values for better position hold
-    static constexpr float distance_kp = 1.0f;
+    static constexpr float distance_kp = 0.3f;
 
     // Speed PID (velocity tracking)
     // Tuned for hard tires - helps stabilize stick-slip
@@ -35,25 +34,25 @@ struct BalanceControllerDefaults {
     // LQR output integral compensation (static friction compensation)
     // Tuned for hard tires - prevents stick-slip oscillation
     static constexpr float lqr_u_kp = 1.0f;
-    static constexpr float lqr_u_ki = 3.0f;
+    static constexpr float lqr_u_ki = 0.0f;
 
     // Zero-point adaptation (CoG self-adjust)
     // Uses distance_ctrl (voltage) as input, not position error
     // Unit: degrees per volt - very small gain for slow adaptation
-    static constexpr float zeropoint_kp = 0.002f;
+    static constexpr float zeropoint_kp = 0.005f;
 
     // Low-pass filter time constants
-    static constexpr float lpf_target_vel_tf = 0.2f;
+    static constexpr float lpf_target_vel_tf = 0.6f;
     static constexpr float lpf_zeropoint_tf  = 0.1f;
 
     // Safety
     // Reduced tilt threshold for high-CoG robot (harder to recover)
-    static constexpr float max_tilt_deg = 20.0f;      // Tilt protection threshold (degrees)
+    static constexpr float max_tilt_deg = 60.0f;      // Tilt protection threshold (degrees)
     static constexpr float pitch_offset = 0.0f;       // Static pitch offset (degrees) - will be auto-adjusted
 
     // Output limits
     // Reduced for lightweight robot to prevent over-shooting
-    static constexpr float pid_limit = 6.0f;          // Individual PID output limit
+    static constexpr float pid_limit = 10.0f;          // Individual PID output limit
     static constexpr float pid_ramp  = 100000.0f;     // PID output ramp (effectively unlimited)
 
     // Wheel lift detection thresholds
