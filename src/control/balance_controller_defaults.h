@@ -15,7 +15,7 @@ struct BalanceControllerDefaults {
     static constexpr float angle_kp = 1.0f;
 
     // Gyro PID (pitch rate damping, input unit: deg/s)
-    static constexpr float gyro_kp = 0.06f;
+    static constexpr float gyro_kp = 0.08f;
 
     // Distance PID (position hold / anti-drift)
     // Tuned for hard off-road tires - higher values for better position hold
@@ -38,12 +38,20 @@ struct BalanceControllerDefaults {
 
     // Zero-point adaptation (CoG self-adjust)
     // Uses distance_ctrl (voltage) as input, not position error
-    // Unit: degrees per volt - very small gain for slow adaptation
-    static constexpr float zeropoint_kp = 0.005f;
+    // Unit: degrees per volt - small gain for gradual adaptation
+    static constexpr float zeropoint_kp = 0.002f;
 
     // Low-pass filter time constants
     static constexpr float lpf_target_vel_tf = 0.6f;
     static constexpr float lpf_zeropoint_tf  = 0.1f;
+
+    // Velocity feedforward gain
+    // Physics: to accelerate at 'a' m/s², robot needs to lean θ = a/g radians
+    // ff_gain scales this: ff_angle_deg = (accel / g) * (180/π) * ff_gain
+    // For high-CoG robot (18cm), use moderate gain to avoid overshoot
+    // Range: 0.0 (disabled) to 1.0 (full physics-based)
+    // NOTE: Set to 0 to disable, then tune up slowly (0.1, 0.2, ...)
+    static constexpr float ff_gain = 0.0f;
 
     // Safety
     // Reduced tilt threshold for high-CoG robot (harder to recover)

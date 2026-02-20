@@ -365,6 +365,7 @@ static bool loadBalanceParams(BalanceController::Params& p) {
     "\"lqr_u_kp\":%f,\"lqr_u_ki\":%f,"
     "\"zeropoint_kp\":%f,"
     "\"lpf_target_vel_tf\":%f,\"lpf_zeropoint_tf\":%f,"
+    "\"ff_gain\":%f,"
     "\"max_tilt_deg\":%f,\"pitch_offset\":%f,"
     "\"pid_limit\":%f,"
     "\"lift_accel_thresh\":%f,\"lift_vel_thresh\":%f}",
@@ -374,10 +375,11 @@ static bool loadBalanceParams(BalanceController::Params& p) {
     &p.lqr_u_kp, &p.lqr_u_ki,
     &p.zeropoint_kp,
     &p.lpf_target_vel_tf, &p.lpf_zeropoint_tf,
+    &p.ff_gain,
     &p.max_tilt_deg, &p.pitch_offset,
     &p.pid_limit,
     &p.lift_accel_thresh, &p.lift_vel_thresh);
-  return matched >= 14;
+  return matched >= 15;
 }
 
 static bool saveBalanceParams(BalanceController::Params& p) {
@@ -392,6 +394,7 @@ static bool saveBalanceParams(BalanceController::Params& p) {
            "\"lqr_u_kp\":%.4f,\"lqr_u_ki\":%.4f,"
            "\"zeropoint_kp\":%.6f,"
            "\"lpf_target_vel_tf\":%.3f,\"lpf_zeropoint_tf\":%.3f,"
+           "\"ff_gain\":%.3f,"
            "\"max_tilt_deg\":%.2f,\"pitch_offset\":%.4f,"
            "\"pid_limit\":%.2f,"
            "\"lift_accel_thresh\":%.2f,\"lift_vel_thresh\":%.2f}",
@@ -401,6 +404,7 @@ static bool saveBalanceParams(BalanceController::Params& p) {
            p.lqr_u_kp, p.lqr_u_ki,
            p.zeropoint_kp,
            p.lpf_target_vel_tf, p.lpf_zeropoint_tf,
+           p.ff_gain,
            p.max_tilt_deg, p.pitch_offset,
            p.pid_limit,
            p.lift_accel_thresh, p.lift_vel_thresh);

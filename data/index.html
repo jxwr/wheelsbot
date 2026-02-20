@@ -236,6 +236,8 @@ a{color:#58a6ff;text-decoration:none}
         <div class="param-item"><label>tilt</label><input type="number" id="p-max_tilt_deg" step="1"><button class="btn-set" onclick="setP('max_tilt_deg')">设</button></div>
         <div class="param-item"><label>limit</label><input type="number" id="p-pid_limit" step="0.5"><button class="btn-set" onclick="setP('pid_limit')">设</button></div>
         <div class="param-item"><label>pitch偏移 <span id="v-pofs" class="realtime-val">(0.0)</span></label><input type="number" id="p-pitch_offset" step="0.1"><button class="btn-set" onclick="setP('pitch_offset')">设</button></div>
+        <div class="param-item"><label>ff_gain</label><input type="number" id="p-ff_gain" step="0.1"><button class="btn-set" onclick="setP('ff_gain')">设</button></div>
+        <div class="param-item"><label>lpf_vel</label><input type="number" id="p-lpf_target_vel_tf" step="0.1"><button class="btn-set" onclick="setP('lpf_target_vel_tf')">设</button></div>
       </div>
     </div>
 
@@ -368,6 +370,8 @@ a{color:#58a6ff;text-decoration:none}
       <div style="font-size:10px;display:grid;grid-template-columns:repeat(2,1fr);gap:6px">
         <div>pitch_offset: <span id="cog-pofs" style="font-family:monospace;color:#58a6ff">--</span>°</div>
         <div>zeropoint_kp: <span id="cog-zp-kp" style="font-family:monospace;color:#58a6ff">--</span></div>
+        <div>ff_gain: <span id="ff-gain" style="font-family:monospace;color:#58a6ff">--</span></div>
+        <div>lpf_vel: <span id="lpf-vel" style="font-family:monospace;color:#58a6ff">--</span>s</div>
       </div>
     </div>
     <div class="curve">
@@ -864,6 +868,14 @@ function handleParams(m) {
       if(k==='zeropoint_kp'){
         const cogZpKp = document.getElementById('cog-zp-kp');
         if(cogZpKp) cogZpKp.textContent = v.toFixed(6);
+      }
+      if(k==='ff_gain'){
+        const ffGain = document.getElementById('ff-gain');
+        if(ffGain) ffGain.textContent = v.toFixed(3);
+      }
+      if(k==='lpf_target_vel_tf'){
+        const lpfVel = document.getElementById('lpf-vel');
+        if(lpfVel) lpfVel.textContent = v.toFixed(2);
       }
     }
   }

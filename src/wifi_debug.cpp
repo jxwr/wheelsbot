@@ -40,6 +40,7 @@ static bool saveBalanceParams(const wheelsbot::control::BalanceController::Param
            "\"lqr_u_kp\":%.4f,\"lqr_u_ki\":%.4f,"
            "\"zeropoint_kp\":%.6f,"
            "\"lpf_target_vel_tf\":%.3f,\"lpf_zeropoint_tf\":%.3f,"
+           "\"ff_gain\":%.3f,"
            "\"max_tilt_deg\":%.2f,\"pitch_offset\":%.4f,"
            "\"pid_limit\":%.2f,"
            "\"lift_accel_thresh\":%.2f,\"lift_vel_thresh\":%.2f}",
@@ -49,6 +50,7 @@ static bool saveBalanceParams(const wheelsbot::control::BalanceController::Param
            p.lqr_u_kp, p.lqr_u_ki,
            p.zeropoint_kp,
            p.lpf_target_vel_tf, p.lpf_zeropoint_tf,
+           p.ff_gain,
            p.max_tilt_deg, p.pitch_offset,
            p.pid_limit,
            p.lift_accel_thresh, p.lift_vel_thresh);
@@ -76,6 +78,7 @@ static bool loadBalanceParams(wheelsbot::control::BalanceController::Params& p) 
     "\"lqr_u_kp\":%f,\"lqr_u_ki\":%f,"
     "\"zeropoint_kp\":%f,"
     "\"lpf_target_vel_tf\":%f,\"lpf_zeropoint_tf\":%f,"
+    "\"ff_gain\":%f,"
     "\"max_tilt_deg\":%f,\"pitch_offset\":%f,"
     "\"pid_limit\":%f,"
     "\"lift_accel_thresh\":%f,\"lift_vel_thresh\":%f}",
@@ -85,11 +88,12 @@ static bool loadBalanceParams(wheelsbot::control::BalanceController::Params& p) 
     &p.lqr_u_kp, &p.lqr_u_ki,
     &p.zeropoint_kp,
     &p.lpf_target_vel_tf, &p.lpf_zeropoint_tf,
+    &p.ff_gain,
     &p.max_tilt_deg, &p.pitch_offset,
     &p.pid_limit,
     &p.lift_accel_thresh, &p.lift_vel_thresh);
 
-  return matched == 16;
+  return matched == 17;
 }
 
 // ============================================================
@@ -97,11 +101,17 @@ static bool loadBalanceParams(wheelsbot::control::BalanceController::Params& p) 
 // ============================================================
 
 static void sendTelemetry() {
-  if (ws.count() == 0 || !s_ctx) return;
+  if (!s_ctx) return;
 
+  // Check if any client is connected and ready
+  bool has_ready_client = false;
   for (auto& c : ws.getClients()) {
-    if (c->status() == WS_CONNECTED && !c->canSend()) return;
+    if (c->status() == WS_CONNECTED && c->canSend()) {
+      has_ready_client = true;
+      break;
+    }
   }
+  if (!has_ready_client) return;
 
   BalanceDebug dbg;
   s_ctx->balance.getDebug(dbg);
@@ -146,7 +156,10 @@ static void sendTelemetry() {
     dbg.cog_lqr_u, dbg.cog_speed, dbg.cog_has_joystick ? 1 : 0,
     s_ctx->target_linear_vel);
 
-  ws.textAll(buf);
+  // Double-check before sending
+  if (ws.count() > 0) {
+    ws.textAll(buf);
+  }
 }
 
 static void sendParams(AsyncWebSocketClient* client) {
@@ -163,6 +176,7 @@ static void sendParams(AsyncWebSocketClient* client) {
     "\"lqr_u_kp\":%.4f,\"lqr_u_ki\":%.4f,"
     "\"zeropoint_kp\":%.6f,"
     "\"lpf_target_vel_tf\":%.3f,\"lpf_zeropoint_tf\":%.3f,"
+    "\"ff_gain\":%.3f,"
     "\"max_tilt_deg\":%.2f,\"pitch_offset\":%.4f,"
     "\"pid_limit\":%.2f,"
     "\"lift_accel_thresh\":%.2f,\"lift_vel_thresh\":%.2f},"
@@ -176,6 +190,7 @@ static void sendParams(AsyncWebSocketClient* client) {
     p.lqr_u_kp, p.lqr_u_ki,
     p.zeropoint_kp,
     p.lpf_target_vel_tf, p.lpf_zeropoint_tf,
+    p.ff_gain,
     p.max_tilt_deg, p.pitch_offset,
     p.pid_limit,
     p.lift_accel_thresh, p.lift_vel_thresh,
@@ -287,6 +302,7 @@ static void handleSetCompensation(const char* buf, AsyncWebSocketClient* client)
   else if (strcmp(key, "zeropoint_kp") == 0)   p.zeropoint_kp = val;
   else if (strcmp(key, "lpf_target_vel_tf") == 0)  p.lpf_target_vel_tf = val;
   else if (strcmp(key, "lpf_zeropoint_tf") == 0)   p.lpf_zeropoint_tf = val;
+  else if (strcmp(key, "ff_gain") == 0)            p.ff_gain = val;
 
   s_ctx->balance.setParams(p);
 

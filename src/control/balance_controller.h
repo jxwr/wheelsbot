@@ -157,6 +157,9 @@ class BalanceController {
     float lpf_target_vel_tf = Defaults::lpf_target_vel_tf;
     float lpf_zeropoint_tf  = Defaults::lpf_zeropoint_tf;
 
+    // Velocity feedforward gain
+    float ff_gain = Defaults::ff_gain;
+
     // Safety
     float max_tilt_deg = Defaults::max_tilt_deg;
     float pitch_offset = Defaults::pitch_offset;
@@ -235,8 +238,32 @@ class BalanceController {
       return;
     }
 
+    // --- Smooth joystick velocity input ---
+    float target_vel_filtered = lpf_target_vel_(in.target_velocity);
+
+    // === Feedforward: pre-lean based on desired acceleration ===
+    // Physics: to accelerate at 'a' m/s², robot needs lean angle θ ≈ a/g radians
+    // This reduces lag by biasing the angle setpoint before feedback reacts
+    float desired_accel = 0.0f;
+    if (in.dt > 0.0001f) {  // Guard against division by zero
+      desired_accel = (target_vel_filtered - prev_target_vel_) / in.dt;
+    }
+    prev_target_vel_ = target_vel_filtered;
+
+    // ff_angle_deg = (accel / g) * (180/π) * ff_gain
+    // For accel=1 m/s² and ff_gain=1.0, this gives ~5.8° lean
+    float ff_angle_deg = (desired_accel / 9.8f) * (180.0f / PI_F) * params_.ff_gain;
+
+    // Clamp feedforward to reasonable range (±10°)
+    ff_angle_deg = constrain(ff_angle_deg, -10.0f, 10.0f);
+
+    // Convert m/s to rad/s for wheel speed reference
+    float target_wheel_vel = target_vel_filtered / WHEEL_RADIUS;
+
     // --- LQR-decomposed balance ---
-    float angle_error = pitch_deg - params_.pitch_offset;
+    // Angle setpoint includes feedforward for smoother acceleration
+    float angle_setpoint = params_.pitch_offset + ff_angle_deg;
+    float angle_error = pitch_deg - angle_setpoint;
     float angle_ctrl    = pid_angle_(angle_error);
     // Convert pitch_rate from rad/s to deg/s to match angle units
     float pitch_rate_dps = in.pitch_rate * (180.0f / PI_F);
@@ -251,13 +278,6 @@ class BalanceController {
       distance_zeropoint_ = distance;
     }
 
-    // Smooth joystick velocity input
-    float target_vel_filtered = lpf_target_vel_(in.target_velocity);
-    // Convert m/s to rad/s for wheel speed reference
-    // Apply motion scaling for better control feel (similar to wheel-leg's 0.1f factor)
-    const float kMotionScaling = 0.8f;  // < 1.0 for softer response, 1.0 for linear
-    float target_wheel_vel = (target_vel_filtered / WHEEL_RADIUS) * kMotionScaling;
-
     // Distance zero-point management
     bool has_joystick_input = (fabsf(in.target_velocity) > 0.01f);
 
@@ -268,34 +288,9 @@ class BalanceController {
       resetPid(pid_lqr_u_);
     }
 
-    // Stop-and-lock: after joystick release, wait for speed < 0.5 before locking
-    if (had_joystick_input_ && !has_joystick_input) {
-      move_stop_flag_ = 1;
-    }
-    if (move_stop_flag_ == 1 && fabsf(speed) < 0.5f) {
-      distance_zeropoint_ = distance;
-      move_stop_flag_ = 0;
-    }
-
     // Fast push detection: reset if pushed hard
     if (fabsf(speed) > 30.0f) {
       distance_zeropoint_ = distance;
-    }
-
-    // Steady-state drift compensation: slowly pull zeropoint toward current position
-    // to prevent long-term accumulation of (distance - distance_zeropoint_)
-    // This only happens when standing still for extended periods
-    constexpr float kSteadySpeedThresh = 0.2f;   // Considered "steady" when |speed| < 0.2 rad/s
-    constexpr float kMaxZeropointDrift = 0.001f; // Max drift per cycle (~0.2 rad/s at 200Hz)
-    if (!has_joystick_input && fabsf(speed) < kSteadySpeedThresh) {
-      float drift = distance - distance_zeropoint_;
-      if (fabsf(drift) > kMaxZeropointDrift) {
-        // Slowly reduce the accumulated error
-        distance_zeropoint_ += (drift > 0 ? kMaxZeropointDrift : -kMaxZeropointDrift);
-      } else {
-        // Close enough, snap to current
-        distance_zeropoint_ = distance;
-      }
     }
 
     had_joystick_input_ = has_joystick_input;
@@ -306,7 +301,10 @@ class BalanceController {
 
     // --- Wheel lift detection ---
     // 计算真实加速度 (rad/s^2)，需要除以 dt
-    float speed_accel = fabsf(speed - speed_prev_) / in.dt;
+    float speed_accel = 0.0f;
+    if (in.dt > 0.0001f) {
+      speed_accel = fabsf(speed - speed_prev_) / in.dt;
+    }
     speed_prev_ = speed;
     // 轮子抬起检测：已禁用，始终认为轮子着地
     bool wheel_lifted = false;
@@ -329,7 +327,7 @@ class BalanceController {
     // distance_ctrl reflects steady-state torque needed to hold position
     // Persistent non-zero distance_ctrl indicates CoG offset (not transient disturbance)
     bool cog_active = fabsf(lqr_u) < 5.0f && !has_joystick_input
-        && fabsf(speed) < 3.0f && !wheel_lifted;
+        && fabsf(speed) < 2.0f && !wheel_lifted;
     if (cog_active) {
       lqr_u = pid_lqr_u_(lqr_u);
       float zeropoint_adjustment = pid_zeropoint_(lpf_zeropoint_(distance_ctrl));
@@ -343,6 +341,7 @@ class BalanceController {
     } else {
       debug_.cog_adapt_active = false;
       debug_.cog_adjustment = 0.0f;
+      resetPid(pid_lqr_u_);  // Clear integral when not in steady state (like reference project)
     }
     // Debug: always record these values
     debug_.cog_distance_ctrl = distance_ctrl;
@@ -536,6 +535,7 @@ class BalanceController {
   float heading_target_ = 0;   // Target heading from joystick command (rad)
   float distance_zeropoint_ = -256.0f;  // Sentinel value
   float speed_prev_ = 0;
+  float prev_target_vel_ = 0;  // For feedforward acceleration calculation
   int uncontrollable_ = 0;
   int move_stop_flag_ = 0;
   bool had_joystick_input_ = false;
