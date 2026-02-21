@@ -51,8 +51,7 @@ pio run -e esp32s3-ota -t upload
 
 1. Power on the robot
 2. Connect to WiFi AP: `BalanceBot` (default password: none)
-3. Open browser: `http://192.168.4.1/` for tuning dashboard
-4. Open `http://192.168.4.1/control` for joystick control
+3. Open browser: `http://192.168.4.1/` for control dashboard
 
 ## Control Architecture
 

@@ -415,9 +415,6 @@ void wifi_ctrl_init(void) {
     server.addHandler(&ws);
 
     server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
-    server.on("/control", HTTP_GET, [](AsyncWebServerRequest* request) {
-        request->send(LittleFS, "/control.html", "text/html");
-    });
 
     server.on("/upload", HTTP_POST, [](AsyncWebServerRequest* request) {
         request->send(200, "text/plain", "Upload OK");
