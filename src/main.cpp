@@ -235,14 +235,14 @@ static void focTask(void*) {
         /* 更新轮子状态 */
         {
             constexpr float VEL_ALPHA = 0.2f;
-            float wL_raw = -sensor_left.getVelocity();
-            float wR_raw = sensor_right.getVelocity();
+            float wL_raw = sensor_left.getVelocity();   /* 左轮不取反 */
+            float wR_raw = -sensor_right.getVelocity(); /* 右轮取反，与 main 一致 */
 
             g_wheel.w_l += VEL_ALPHA * (wL_raw - g_wheel.w_l);
             g_wheel.w_r += VEL_ALPHA * (wR_raw - g_wheel.w_r);
 
-            g_wheel.x_l = -sensor_left.getAngle();
-            g_wheel.x_r = sensor_right.getAngle();
+            g_wheel.x_l = sensor_left.getAngle();    /* 左轮不取反 */
+            g_wheel.x_r = -sensor_right.getAngle();  /* 右轮取反 */
             g_wheel.valid = true;
         }
 
