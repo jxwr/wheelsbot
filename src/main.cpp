@@ -1,7 +1,7 @@
 /*
- * main.cpp - 平衡机器人主程序
+ * main.cpp - Balance robot main program
  *
- * 硬件实例 + FreeRTOS 任务调度 + 串口命令
+ * Hardware instances + FreeRTOS task scheduling + Serial commands
  */
 
 #include <Arduino.h>
@@ -17,7 +17,7 @@
 #include "wifi_ctrl.h"
 
 /*
- * 全局状态实例
+ * Global state instances
  */
 struct BalanceParams g_params = DEFAULT_PARAMS;
 struct ImuState       g_imu = {};
@@ -43,7 +43,7 @@ volatile float        g_tgt_vel = 0.0f;
 volatile float        g_tgt_yaw = 0.0f;
 
 /*
- * 硬件实例
+ * Hardware instances
  */
 BLDCMotor motor_left(POLE_PAIRS);
 BLDCMotor motor_right(POLE_PAIRS);
@@ -56,7 +56,7 @@ TwoWire Wire2(1);
 SemaphoreHandle_t wire_mutex = nullptr;
 
 /*
- * LED 任务
+ * LED task
  */
 static void ledTask(void*) {
     pinMode(LED_PIN, OUTPUT);
@@ -69,7 +69,7 @@ static void ledTask(void*) {
 }
 
 /*
- * IMU 任务 - 200Hz
+ * IMU task - 200Hz
  */
 static void imuTask(void*) {
     const TickType_t period = pdMS_TO_TICKS(5);
@@ -85,7 +85,7 @@ static void imuTask(void*) {
 }
 
 /*
- * 平衡任务 - 200Hz
+ * Balance task - 200Hz
  */
 static void balanceTask(void*) {
     const TickType_t period = pdMS_TO_TICKS(5);
@@ -108,10 +108,10 @@ static void balanceTask(void*) {
 }
 
 /*
- * FOC 任务 - 1kHz
+ * FOC task - 1kHz
  */
 static void focTask(void*) {
-    /* 左电机初始化 (Wire - 与 IMU 共享，需要 mutex) */
+    /* Left motor init (Wire - shared with IMU, needs mutex) */
     xSemaphoreTake(wire_mutex, portMAX_DELAY);
     sensor_left.init(&Wire);
     motor_left.linkSensor(&sensor_left);
@@ -135,7 +135,7 @@ static void focTask(void*) {
         return;
     }
 
-    /* 右电机初始化 (Wire2 - 独立) */
+    /* Right motor init (Wire2 - independent) */
     sensor_right.init(&Wire2);
     motor_right.linkSensor(&sensor_right);
 
@@ -163,7 +163,7 @@ static void focTask(void*) {
     bool lastMotorEnable = false;
 
     while (true) {
-        /* 电机使能/禁用 */
+        /* Motor enable/disable */
         bool me = g_cmd.motor_en;
         if (me != lastMotorEnable) {
             lastMotorEnable = me;
@@ -176,7 +176,7 @@ static void focTask(void*) {
             }
         }
 
-        /* 应用模式变更 */
+        /* Apply mode changes */
         if (g_cmd.apply_mode) {
             if (g_cmd.req_mot_mode == 0) {
                 motor_left.controller = MotionControlType::torque;
@@ -200,7 +200,7 @@ static void focTask(void*) {
             g_cmd.apply_mode = false;
         }
 
-        /* 应用限幅 */
+        /* Apply limits */
         if (g_cmd.apply_limits) {
             motor_left.voltage_limit = g_cmd.t_limit;
             motor_right.voltage_limit = g_cmd.t_limit;
@@ -213,7 +213,7 @@ static void focTask(void*) {
             g_cmd.apply_limits = false;
         }
 
-        /* 应用 PID */
+        /* Apply PID */
         if (g_cmd.apply_pid) {
             motor_left.PID_velocity.P = g_cmd.pid_p;
             motor_left.PID_velocity.I = g_cmd.pid_i;
@@ -226,27 +226,27 @@ static void focTask(void*) {
             g_cmd.apply_pid = false;
         }
 
-        /* FOC 循环 */
+        /* FOC loop */
         xSemaphoreTake(wire_mutex, portMAX_DELAY);
         motor_left.loopFOC();
         xSemaphoreGive(wire_mutex);
         motor_right.loopFOC();
 
-        /* 更新轮子状态 */
+        /* Update wheel state */
         {
             constexpr float VEL_ALPHA = 0.2f;
-            float wL_raw = sensor_left.getVelocity();   /* 左轮不取反 */
-            float wR_raw = -sensor_right.getVelocity(); /* 右轮取反，与 main 一致 */
+            float wL_raw = sensor_left.getVelocity();   /* Left wheel: no inversion */
+            float wR_raw = -sensor_right.getVelocity(); /* Right wheel: inverted, consistent with main */
 
             g_wheel.w_l += VEL_ALPHA * (wL_raw - g_wheel.w_l);
             g_wheel.w_r += VEL_ALPHA * (wR_raw - g_wheel.w_r);
 
-            g_wheel.x_l = sensor_left.getAngle();    /* 左轮不取反 */
-            g_wheel.x_r = -sensor_right.getAngle();  /* 右轮取反 */
+            g_wheel.x_l = sensor_left.getAngle();    /* Left wheel: no inversion */
+            g_wheel.x_r = -sensor_right.getAngle();  /* Right wheel: inverted */
             g_wheel.valid = true;
         }
 
-        /* 选择目标 */
+        /* Select target */
         float ltarget = 0.0f;
         float rtarget = 0.0f;
 
@@ -266,7 +266,7 @@ static void focTask(void*) {
         motor_left.move(ltarget);
         motor_right.move(rtarget);
 
-        /* 1Hz 调试输出 */
+        /* 1Hz debug output */
         uint32_t ms = millis();
         if (ms - lastPrintMs >= 1000) {
             lastPrintMs = ms;
@@ -280,7 +280,7 @@ static void focTask(void*) {
 }
 
 /*
- * I2C 总线扫描
+ * I2C bus scan
  */
 static void scanBus(TwoWire& w, const char* name) {
     Serial.printf("SCAN,%s,begin\n", name);
@@ -296,7 +296,7 @@ static void scanBus(TwoWire& w, const char* name) {
 }
 
 /*
- * 参数持久化
+ * Parameter persistence
  */
 static bool loadBalanceParams(struct BalanceParams& p) {
     if (!LittleFS.exists("/params/balance.json")) {
@@ -364,7 +364,7 @@ static bool saveBalanceParams(struct BalanceParams& p) {
 }
 
 /*
- * 串口命令处理
+ * Serial command handler
  */
 static void handleSerialCmd(const char* cmd) {
     if (strlen(cmd) == 0) return;
@@ -441,7 +441,7 @@ static void handleSerialCmd(const char* cmd) {
         return;
     }
 
-    /* 参数设置/查询 */
+    /* Parameter set/query */
     char* eq = strchr((char*)cmd, '=');
     char* q = strchr((char*)cmd, '?');
 
@@ -468,7 +468,7 @@ static void handleSerialCmd(const char* cmd) {
         return;
     }
 
-    /* 匹配参数 */
+    /* Match parameter */
     bool found = true;
     float* pfield = nullptr;
 
@@ -509,7 +509,7 @@ void setup() {
 
     SimpleFOCDebug::enable(&Serial);
 
-    /* I2C 总线 */
+    /* I2C buses */
     Serial.println("I2C init...");
     Wire.begin((int)PIN_I2C_SDA, (int)PIN_I2C_SCL);
     Wire.setClock(400000);
@@ -520,13 +520,13 @@ void setup() {
     scanBus(Wire, "Wire(3,9)");
     scanBus(Wire2, "Wire2(2,1)");
 
-    /* 创建 mutex */
+    /* Create mutex */
     wire_mutex = xSemaphoreCreateMutex();
 
-    /* 初始化 IMU */
+    /* Initialize IMU */
     imu_init();
 
-    /* WiFi 调试 */
+    /* WiFi debug */
     wifi_ctrl_init();
 
     /* OTA */
@@ -535,10 +535,10 @@ void setup() {
     ArduinoOTA.begin();
     Serial.println("OTA Ready");
 
-    /* 使用代码默认参数 */
+    /* Use code-default params */
     Serial.println("Using code-default balance params");
 
-    /* 启动任务 */
+    /* Start tasks */
     xTaskCreatePinnedToCore(ledTask,     "LED", 2048, nullptr, 0, nullptr, 0);
     xTaskCreatePinnedToCore(imuTask,     "IMU", 8192, nullptr, 5, nullptr, 0);
     xTaskCreatePinnedToCore(balanceTask, "BAL", 8192, nullptr, 4, nullptr, 0);
@@ -554,7 +554,7 @@ void setup() {
 void loop() {
     ArduinoOTA.handle();
 
-    /* 串口命令 */
+    /* Serial commands */
     static char cmdbuf[64];
     static int cmdlen = 0;
     while (Serial.available() && cmdlen < 63) {

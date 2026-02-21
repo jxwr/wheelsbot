@@ -1,8 +1,8 @@
 /*
- * robot.h - 平衡机器人数据结构和接口定义
+ * robot.h - Balance robot data structures and interface definitions
  *
- * 所有状态、参数、调试数据都在这里定义。
- * 这是唯一的"数据头文件"。
+ * All state, parameters, and debug data are defined here.
+ * This is the single "data header file".
  */
 #ifndef ROBOT_H
 #define ROBOT_H
@@ -15,7 +15,7 @@ extern "C" {
 #endif
 
 /*
- * 平衡控制参数
+ * Balance control parameters
  */
 struct BalanceParams {
     float angle_kp;
@@ -38,7 +38,7 @@ struct BalanceParams {
 };
 
 /*
- * 默认参数 (从 balance_controller_defaults.h)
+ * Default parameters (from balance_controller_defaults.h)
  */
 static const struct BalanceParams DEFAULT_PARAMS = {
     .angle_kp          = 1.0f,
@@ -61,7 +61,7 @@ static const struct BalanceParams DEFAULT_PARAMS = {
 };
 
 /*
- * IMU 状态
+ * IMU state
  */
 struct ImuState {
     volatile bool valid;
@@ -73,7 +73,7 @@ struct ImuState {
 };
 
 /*
- * 轮子状态
+ * Wheel state
  */
 struct WheelState {
     volatile bool valid;
@@ -82,7 +82,7 @@ struct WheelState {
 };
 
 /*
- * 平衡输出
+ * Balance output
  */
 struct BalanceOutput {
     volatile float motor_l;
@@ -91,7 +91,7 @@ struct BalanceOutput {
 };
 
 /*
- * 命令状态
+ * Command state
  */
 struct CommandState {
     volatile bool balance_en;
@@ -108,7 +108,7 @@ struct CommandState {
 };
 
 /*
- * 调试数据
+ * Debug data
  */
 struct BalanceDebug {
     /* IMU */
@@ -116,11 +116,11 @@ struct BalanceDebug {
     float gx, gy, gz;
     float pitch, pitch_rate, roll, yaw_rate;
 
-    /* 轮子 */
+    /* Wheels */
     float wheel_vel;
     float w_l, w_r, x_l, x_r;
 
-    /* 各环贡献 */
+    /* Control loop contributions */
     float angle_ctrl;
     float gyro_ctrl;
     float distance_ctrl;
@@ -128,24 +128,24 @@ struct BalanceDebug {
     float lqr_raw;
     float lqr_comp;
 
-    /* 偏航 */
+    /* Yaw */
     float yaw_out;
     float heading;
 
-    /* 零点 */
+    /* Zero points */
     float pitch_offset;
     float distance_zero;
 
-    /* 输出 */
+    /* Output */
     float motor_l;
     float motor_r;
 
-    /* 状态 */
+    /* Status */
     bool running;
     uint32_t fault_flags;
     bool lifted;
 
-    /* CoG 自适应 */
+    /* CoG adaptation */
     bool cog_active;
     float cog_dist_ctrl;
     float cog_adj;
@@ -155,7 +155,7 @@ struct BalanceDebug {
 };
 
 /*
- * 全局实例声明 (在 main.cpp 中定义)
+ * Global instance declarations (defined in main.cpp)
  */
 extern struct BalanceParams g_params;
 extern struct ImuState       g_imu;
@@ -167,7 +167,7 @@ extern volatile float        g_tgt_vel;
 extern volatile float        g_tgt_yaw;
 
 /*
- * 平衡控制接口
+ * Balance control interface
  */
 void balance_init(void);
 void balance_step(float dt);
@@ -177,7 +177,7 @@ void balance_get_params(struct BalanceParams* out);
 void balance_set_params(const struct BalanceParams* p);
 
 /*
- * IMU 接口
+ * IMU interface
  */
 void imu_init(void);
 void imu_read(void);

@@ -1,53 +1,53 @@
-# WheelsBot 开发指南
+# WheelsBot Development Guide
 
-两轮自平衡机器人项目，运行于 ESP32-S3 平台。
+Two-wheel self-balancing robot running on ESP32-S3.
 
 ---
 
-## 1. 项目概述
+## 1. Project Overview
 
-### 1.1 核心架构
+### 1.1 Core Architecture
 
 ```
 src/
-├── main.cpp           # 硬件实例 + FreeRTOS 任务 + 串口命令
-├── robot.h            # 数据结构定义（配置/状态/调试）
-├── balance.cpp        # 平衡控制算法
-├── imu_mpu6050.cpp    # IMU 读取
+├── main.cpp           # Hardware instances + FreeRTOS tasks + Serial commands
+├── robot.h            # Data structure definitions (config/state/debug)
+├── balance.cpp        # Balance control algorithm
+├── imu_mpu6050.cpp    # IMU reading
 ├── wifi_ctrl.cpp      # WiFi/WebSocket/OTA
-└── pins.h             # GPIO 定义
+└── pins.h             # GPIO definitions
 ```
 
-**设计原则**：数据放 struct，算法用函数，状态全局可见。
+**Design Principle**: Data in structs, algorithms as functions, global state visibility.
 
-### 1.2 技术栈
+### 1.2 Tech Stack
 
-| 组件 | 技术 |
-|------|------|
-| 平台 | ESP32-S3 (Arduino Framework) |
-| 电机控制 | SimpleFOC (FOC 无刷电机) |
-| 实时系统 | FreeRTOS |
-| IMU | MPU6050 (互补滤波) |
-| 编码器 | AS5600 (I2C 磁编码器) |
-| 通信 | WiFi AP + WebSocket |
-| 构建系统 | PlatformIO |
+| Component | Technology |
+|-----------|------------|
+| Platform | ESP32-S3 (Arduino Framework) |
+| Motor Control | SimpleFOC (FOC brushless motor) |
+| RTOS | FreeRTOS |
+| IMU | MPU6050 (complementary filter) |
+| Encoder | AS5600 (I2C magnetic encoder) |
+| Communication | WiFi AP + WebSocket |
+| Build System | PlatformIO |
 
 ---
 
-## 2. 控制系统
+## 2. Control System
 
-### 2.1 任务频率
+### 2.1 Task Frequencies
 
-| 任务 | 频率 | 核心 | 优先级 |
-|------|------|------|--------|
-| FOC 电机 | 1kHz | 1 | 5 |
-| 平衡控制 | 200Hz | 0 | 4 |
-| IMU 读取 | 200Hz | 0 | 5 |
-| WiFi 遥测 | 20Hz | 0 | 1 |
+| Task | Frequency | Core | Priority |
+|------|-----------|------|----------|
+| FOC Motor | 1kHz | 1 | 5 |
+| Balance Control | 200Hz | 0 | 4 |
+| IMU Reading | 200Hz | 0 | 5 |
+| WiFi Telemetry | 20Hz | 0 | 1 |
 
-### 2.2 控制环路结构
+### 2.2 Control Loop Structure
 
-LQR 分解的并联 PID 控制：
+LQR-decomposed parallel PID control:
 
 ```
                     ┌─ angle_kp × angle_error ────┐
@@ -64,82 +64,82 @@ differential:  motor_L = -0.5 × (lqr_u + yaw)
                motor_R = -0.5 × (lqr_u - yaw)
 ```
 
-### 2.3 关键参数
+### 2.3 Key Parameters
 
-| 参数 | 默认值 | 作用 |
-|------|--------|------|
-| `angle_kp` | 1.0 | 角度环增益 |
-| `gyro_kp` | 0.08 | 角速度阻尼 |
-| `distance_kp` | 0.3 | 位置环增益 |
-| `speed_kp` | 1.0 | 速度环增益 |
-| `zeropoint_kp` | 0.002 | CoG 自适应速率 |
-| `pitch_offset` | 0.0 | 重心偏移补偿 (°) |
-| `max_tilt_deg` | 60.0 | 最大倾角保护 (°) |
+| Parameter | Default | Purpose |
+|-----------|---------|---------|
+| `angle_kp` | 1.0 | Angle loop gain |
+| `gyro_kp` | 0.08 | Angular velocity damping |
+| `distance_kp` | 0.3 | Position loop gain |
+| `speed_kp` | 1.0 | Velocity loop gain |
+| `zeropoint_kp` | 0.002 | CoG adaptation rate |
+| `pitch_offset` | 0.0 | CoG offset compensation (°) |
+| `max_tilt_deg` | 60.0 | Max tilt protection (°) |
 
-### 2.4 CoG 自适应
+### 2.4 CoG Self-Adaptation
 
-机器人静止时自动调整 `pitch_offset` 以补偿重心偏移：
+Automatically adjusts `pitch_offset` when robot is stationary to compensate for center of gravity offset:
 
-**激活条件**：
-- `|lqr_u| < 5.0` (输出较小)
-- 无摇杆输入
+**Activation Conditions**:
+- `|lqr_u| < 5.0` (small output)
+- No joystick input
 - `|speed| < 2.0 rad/s`
-- 轮子未离地
+- Wheels not lifted
 
-**调整方向**：`pitch_offset -= zeropoint_kp × distance_ctrl`
+**Adjustment Direction**: `pitch_offset -= zeropoint_kp × distance_ctrl`
 
 ---
 
-## 3. 轮子方向约定
+## 3. Wheel Direction Convention
 
-**重要**：轮子速度/位置符号必须正确，否则控制环路混乱。
+**IMPORTANT**: Wheel velocity/position signs must be correct, otherwise control loop will be chaotic.
 
 ```c
-// 正确配置 (与 main 分支一致)
-float wL_raw = sensor_left.getVelocity();   // 左轮不取反
-float wR_raw = -sensor_right.getVelocity(); // 右轮取反
+// Correct configuration (consistent with main branch)
+float wL_raw = sensor_left.getVelocity();   // Left wheel: no inversion
+float wR_raw = -sensor_right.getVelocity(); // Right wheel: inverted
 
-g_wheel.x_l = sensor_left.getAngle();    // 左轮不取反
-g_wheel.x_r = -sensor_right.getAngle();  // 右轮取反
+g_wheel.x_l = sensor_left.getAngle();    // Left wheel: no inversion
+g_wheel.x_r = -sensor_right.getAngle();  // Right wheel: inverted
 ```
 
 ---
 
-## 4. 串口调试
+## 4. Serial Debugging
 
-### 4.1 命令格式
+### 4.1 Command Format
 
 ```
-param=value    # 设置参数
-param?         # 查询参数
-dump           # 显示所有参数
-telem          # 显示遥测数据
-save           # 保存参数到 Flash
-reset          # 重置控制器
-help           # 帮助
+param=value    # Set parameter
+param?         # Query parameter
+dump           # Show all parameters
+telem          # Show telemetry data
+save           # Save parameters to Flash
+reset          # Reset controller
+help           # Help
 ```
 
-### 4.2 调试工具
+### 4.2 Debug Tools
 
 ```bash
 cd tools
-python3 debug_check_params.py      # 检查参数
-python3 debug_monitor_cog.py       # 监控 CoG 自适应
-python3 debug_analyze_oscillation.py  # 分析振荡
+python3 debug_check_params.py      # Check parameters
+python3 debug_monitor_cog.py       # Monitor CoG adaptation
+python3 debug_analyze_oscillation.py  # Analyze oscillation
 ```
 
 ---
 
-## 5. 命名规范
+## 5. Naming Convention
 
-### 5.1 保留完整的核心词
+### 5.1 Keep Full Words for Core Terms
 
 `angle`, `gyro`, `distance`, `speed`, `yaw`, `pitch`, `roll`
 
-### 5.2 缩写规则
+### 5.2 Abbreviation Rules
 
-| 完整词 | 缩写 |
-|--------|------|
+| Full Word | Abbreviation |
+|-----------|--------------|
 | contribution | ctrl |
 | enable | en |
 | zeropoint | zero |
@@ -149,92 +149,92 @@ python3 debug_analyze_oscillation.py  # 分析振荡
 | joystick | joy |
 | output | out |
 
-### 5.3 示例
+### 5.3 Examples
 
 ```c
-// 正确
+// Correct
 float angle_ctrl, gyro_ctrl, distance_ctrl;
 bool balance_en, motor_en;
 float motor_l, motor_r, w_l, w_r;
 
-// 错误
+// Wrong
 float angle_contribution, wL, xR;
 ```
 
 ---
 
-## 6. 硬件参数
+## 6. Hardware Parameters
 
-| 参数 | 值 | 说明 |
-|------|-----|------|
-| 轮子直径 | 60mm | radius = 0.03m |
-| 极对数 | 7 | BLDC 电机 |
-| 电源电压 | 12V | 标称 |
-| I2C1 | SDA=3, SCL=9 | IMU + 左编码器 |
-| I2C2 | SDA=2, SCL=1 | 右编码器 |
-
----
-
-## 7. 开发流程
-
-### 7.1 探索-计划-编码-验证
-
-1. **Explore**: 使用 `grep`/`Glob` 定位相关代码
-2. **Plan**: 输出修改计划，等待确认
-3. **Code**: 实现修改，保持现有风格
-4. **Verify**: 构建验证 `pio run -e esp32s3`
-
-### 7.2 提交规范
-
-- 使用 [Conventional Commits](https://www.conventionalcommits.org/)
-- 类型：`feat:`, `fix:`, `refactor:`, `chore:`
-- 示例：`fix(control): correct wheel velocity sign convention`
-
-### 7.3 分支策略
-
-- `main` - 稳定版本
-- `refactor/unix-c-style` - 当前开发版本
-- 功能分支从 main 创建
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Wheel diameter | 60mm | radius = 0.03m |
+| Pole pairs | 7 | BLDC motor |
+| Supply voltage | 12V | nominal |
+| I2C1 | SDA=3, SCL=9 | IMU + left encoder |
+| I2C2 | SDA=2, SCL=1 | Right encoder |
 
 ---
 
-## 8. 决策记录
+## 7. Development Workflow
 
-重要决策记录在 `docs/decisions/`，格式：
+### 7.1 Explore-Plan-Code-Verify
+
+1. **Explore**: Use `grep`/`Glob` to locate relevant code
+2. **Plan**: Output modification plan, wait for confirmation
+3. **Code**: Implement changes, maintain existing style
+4. **Verify**: Build with `pio run -e esp32s3`
+
+### 7.2 Commit Convention
+
+- Use [Conventional Commits](https://www.conventionalcommits.org/)
+- Types: `feat:`, `fix:`, `refactor:`, `chore:`
+- Example: `fix(control): correct wheel velocity sign convention`
+
+### 7.3 Branch Strategy
+
+- `main` - Stable version
+- `refactor/unix-c-style` - Current development version
+- Feature branches created from main
+
+---
+
+## 8. Decision Records
+
+Important decisions recorded in `docs/decisions/`, format:
 
 ```markdown
-# Decision: <标题>
+# Decision: <Title>
 
 Date: YYYY-MM-DD
 
 ## Context
-背景描述
+Background description
 
 ## Decision
-选择的方案
+Selected solution
 
 ## Impact
-影响范围
+Affected scope
 ```
 
 ---
 
-## 9. 故障排查
+## 9. Troubleshooting
 
-### 9.1 机器人无法平衡
+### 9.1 Robot Cannot Balance
 
-1. 检查轮子方向符号是否正确
-2. 检查 IMU 是否初始化成功 (`telem` 命令)
-3. 检查参数是否合理 (`dump` 命令)
+1. Check wheel direction signs are correct
+2. Check IMU initialized successfully (`telem` command)
+3. Check parameters are reasonable (`dump` command)
 
-### 9.2 机器人漂移
+### 9.2 Robot Drifting
 
-1. 检查 `speed_kp` 是否过小 (<0.3)
-2. 检查 CoG 自适应是否激活 (`debug_monitor_cog.py`)
-3. 检查 `pitch_offset` 是否收敛
+1. Check `speed_kp` not too small (<0.3)
+2. Check CoG adaptation is active (`debug_monitor_cog.py`)
+3. Check `pitch_offset` has converged
 
-### 9.3 机器人振荡
+### 9.3 Robot Oscillating
 
-1. 增加 `gyro_kp` (0.08 → 0.12)
-2. 减少 `angle_kp`
-3. 使用 `debug_analyze_oscillation.py` 定位振荡源
+1. Increase `gyro_kp` (0.08 → 0.12)
+2. Decrease `angle_kp`
+3. Use `debug_analyze_oscillation.py` to locate oscillation source

@@ -1,75 +1,75 @@
-# 项目记忆
+# Project Memory
 
-持久化的约束、规则和技术决策记录。
+Persistent record of constraints, rules, and technical decisions.
 
 ---
 
-## 2026-02-21: Unix C 风格重构完成
+## 2026-02-21: Unix C Style Refactor Complete
 
-### 当前代码结构
+### Current Code Structure
 
 ```
 src/
-├── main.cpp           # 硬件实例 + FreeRTOS 任务 + 串口命令 (574 行)
-├── robot.h            # 数据结构定义 (189 行)
-├── balance.cpp        # 平衡控制算法 (322 行)
-├── imu_mpu6050.cpp    # IMU 读取 (128 行)
-├── wifi_ctrl.cpp      # WiFi/WebSocket/OTA (479 行)
-└── pins.h             # GPIO 定义 (43 行)
+├── main.cpp           # Hardware + FreeRTOS tasks + Serial commands (574 lines)
+├── robot.h            # Data structure definitions (189 lines)
+├── balance.cpp        # Balance control algorithm (322 lines)
+├── imu_mpu6050.cpp    # IMU reading (128 lines)
+├── wifi_ctrl.cpp      # WiFi/WebSocket/OTA (479 lines)
+└── pins.h             # GPIO definitions (43 lines)
 
-总计: ~1700 行，6 个文件
+Total: ~1700 lines, 6 files
 ```
 
-### 关键约束
+### Critical Constraints
 
-1. **轮子方向**：
-   - 左轮不取反，右轮取反
-   - 错误的符号会导致控制环路混乱
+1. **Wheel Direction**:
+   - Left wheel: no inversion, right wheel: inverted
+   - Wrong signs will cause control loop chaos
 
-2. **IMU 单位**：
-   - `g_imu.pitch` 输出角度 (°)
-   - `g_imu.gy` 输出角速度 (rad/s)
+2. **IMU Units**:
+   - `g_imu.pitch` outputs angle (°)
+   - `g_imu.gy` outputs angular velocity (rad/s)
 
-3. **控制频率**：
-   - 平衡环必须 ≥200Hz
-   - FOC 环必须 =1kHz
-
----
-
-## 2026-02-14: 控制参数调优
-
-### 关键参数下限
-
-- `speed_kp >= 0.3` (低于此值会导致漂移)
-- `gyro_kp = 0.08~0.12` (阻尼不足会导致振荡)
-
-### CoG 自适应
-
-- 激活条件：`|lqr_u| < 5 && |speed| < 2 && 无摇杆输入`
-- 调整方向：`pitch_offset -= zeropoint_kp × distance_ctrl`
-- `zeropoint_kp = 0.002` (过大会导致振荡)
-
-### 高重心机器人调参
-
-1. 先调 `gyro_kp` (0.12-0.15) + `angle_kp` (4.5-5.5) 实现稳定站立
-2. 再调 `speed_kp` + `distance_kp` (0.25-0.45) 实现运动控制
-3. 最后调 `lqr_u_ki` 和其他补偿参数
+3. **Control Frequency**:
+   - Balance loop must be ≥200Hz
+   - FOC loop must be =1kHz
 
 ---
 
-## 硬件参数
+## 2026-02-14: Control Parameter Tuning
 
-| 参数 | 值 |
-|------|-----|
-| 轮子半径 | 0.03m |
-| 极对数 | 7 |
-| 供电电压 | 12V |
-| 最大安全倾角 | 60° |
+### Parameter Lower Bounds
+
+- `speed_kp >= 0.3` (below this causes drift)
+- `gyro_kp = 0.08~0.12` (insufficient damping causes oscillation)
+
+### CoG Self-Adaptation
+
+- Activation: `|lqr_u| < 5 && |speed| < 2 && no joystick input`
+- Adjustment direction: `pitch_offset -= zeropoint_kp × distance_ctrl`
+- `zeropoint_kp = 0.002` (too high causes oscillation)
+
+### High-CoG Robot Tuning
+
+1. First: tune `gyro_kp` (0.12-0.15) + `angle_kp` (4.5-5.5) for stable standing
+2. Then: tune `speed_kp` + `distance_kp` (0.25-0.45) for motion control
+3. Finally: tune `lqr_u_ki` and other compensation parameters
 
 ---
 
-## 技术债务
+## Hardware Parameters
 
-- [ ] IMU 陀螺仪零偏校准 (目前无启动校准)
-- [ ] 参数从 Flash 自动加载 (目前使用代码默认值)
-- [ ] 地磁计融合消除偏航漂移 (长期)
+| Parameter | Value |
+|-----------|-------|
+| Wheel radius | 0.03m |
+| Pole pairs | 7 |
+| Supply voltage | 12V |
+| Max safe tilt | 60° |
+
+---
+
+## Technical Debt
+
+- [ ] IMU gyro bias calibration (currently no startup calibration)
+- [ ] Auto-load parameters from Flash (currently uses code defaults)
+- [ ] Magnetometer fusion to eliminate yaw drift (long-term)

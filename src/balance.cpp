@@ -1,19 +1,19 @@
 /*
- * balance.cpp - 平衡控制算法
+ * balance.cpp - Balance control algorithm
  *
- * 从 BalanceController::step() 翻译，逻辑完全保持不变。
- * 使用 SimpleFOC 的 PIDController 和 LowPassFilter。
+ * Translated from BalanceController::step(), logic preserved exactly.
+ * Uses SimpleFOC PIDController and LowPassFilter.
  */
 
 #include "robot.h"
 #include <SimpleFOC.h>
 #include <math.h>
 
-/* 常量 */
+/* Constants */
 static constexpr float PI_F = 3.14159265358979f;
 static constexpr float WHEEL_RADIUS = 0.03f;
 
-/* PID 控制器 */
+/* PID controllers */
 static PIDController pid_angle     {1, 0, 0, 100000, 1};
 static PIDController pid_gyro      {1, 0, 0, 100000, 1};
 static PIDController pid_distance  {1, 0, 0, 100000, 1};
@@ -23,11 +23,11 @@ static PIDController pid_yaw_gyro  {1, 0, 0, 100000, 1};
 static PIDController pid_lqr_u     {1, 1, 0, 100000, 1};
 static PIDController pid_zeropoint {1, 0, 0, 100000, 1};
 
-/* 低通滤波器 */
+/* Low-pass filters */
 static LowPassFilter lpf_tgt_vel {0.2f};
 static LowPassFilter lpf_zero    {0.1f};
 
-/* 内部状态 */
+/* Internal state */
 static float distance_zero = -256.0f;
 static float spd_prev = 0;
 static float prev_tgt_vel = 0;
@@ -37,7 +37,7 @@ static int   unctl = 0;
 static bool  had_joy = false;
 static bool  had_yaw = false;
 
-/* PID 重置辅助函数 */
+/* PID reset helper */
 static void reset_pid(PIDController& pid) {
     float p = pid.P, i = pid.I, d = pid.D;
     float ramp = pid.output_ramp, lim = pid.limit;
@@ -62,11 +62,11 @@ void balance_init(void) {
 
 void balance_step(float dt) {
     /*
-     * 以下代码从 BalanceController::step() 逐行翻译
-     * 确保逻辑完全一致
+     * Translated line-by-line from BalanceController::step()
+     * Logic preserved exactly
      */
 
-    /* ===== 1. 安全检查 ===== */
+    /* ===== 1. Safety check ===== */
     if (!g_cmd.balance_en || !g_imu.valid || !g_wheel.valid) {
         g_out.motor_l = 0;
         g_out.motor_r = 0;
@@ -79,7 +79,7 @@ void balance_step(float dt) {
 
     float pitch_deg = g_imu.pitch;
 
-    /* ===== 2. 倾角保护 + 恢复逻辑 ===== */
+    /* ===== 2. Tilt protection + recovery logic ===== */
     if (fabsf(pitch_deg) > g_params.max_tilt_deg) {
         unctl = 1;
     }
@@ -103,7 +103,7 @@ void balance_step(float dt) {
         return;
     }
 
-    /* ===== 3. 摇杆滤波 + 前馈 ===== */
+    /* ===== 3. Joystick filter + feedforward ===== */
     float tgt_vel_filt = lpf_tgt_vel(g_tgt_vel);
 
     float accel = 0.0f;
@@ -117,7 +117,7 @@ void balance_step(float dt) {
 
     float tgt_wheel_vel = tgt_vel_filt / WHEEL_RADIUS;
 
-    /* ===== 4. 角度环 + 角速度环 ===== */
+    /* ===== 4. Angle loop + gyro loop ===== */
     float angle_sp = g_params.pitch_offset + ff_angle;
     float angle_err = pitch_deg - angle_sp;
     float angle_ctrl = pid_angle(angle_err);
@@ -125,16 +125,16 @@ void balance_step(float dt) {
     float pitch_rate_dps = g_imu.gy * (180.0f / PI_F);
     float gyro_ctrl = pid_gyro(pitch_rate_dps);
 
-    /* ===== 5. 位置环 + 速度环 ===== */
+    /* ===== 5. Position loop + velocity loop ===== */
     float distance = (g_wheel.x_l + g_wheel.x_r) * 0.5f;
     float speed = (g_wheel.w_l + g_wheel.w_r) * 0.5f;
 
-    /* 初始化距离零点 */
+    /* Initialize distance zero point */
     if (distance_zero < -200.0f) {
         distance_zero = distance;
     }
 
-    /* 距离零点管理 */
+    /* Distance zero point management */
     bool has_joy = (fabsf(g_tgt_vel) > 0.01f);
 
     if (has_joy) {
@@ -142,7 +142,7 @@ void balance_step(float dt) {
         reset_pid(pid_lqr_u);
     }
 
-    /* 快速推动检测 */
+    /* Fast push detection */
     if (fabsf(speed) > 30.0f) {
         distance_zero = distance;
     }
@@ -152,14 +152,14 @@ void balance_step(float dt) {
     float dist_ctrl = pid_distance(distance - distance_zero);
     float speed_ctrl = pid_speed(speed - tgt_wheel_vel);
 
-    /* ===== 6. 轮子抬起检测（已禁用） ===== */
+    /* ===== 6. Wheel lift detection (disabled) ===== */
     float spd_accel = 0.0f;
     if (dt > 0.0001f) {
         spd_accel = fabsf(speed - spd_prev) / dt;
     }
     spd_prev = speed;
 
-    bool lifted = false;  /* 已禁用 */
+    bool lifted = false;  /* Disabled */
 
     float lqr_u;
     if (lifted) {
@@ -172,7 +172,7 @@ void balance_step(float dt) {
 
     g_debug.lqr_raw = lqr_u;
 
-    /* ===== 7. CoG 自适应 ===== */
+    /* ===== 7. CoG adaptation ===== */
     bool cog_act = fabsf(lqr_u) < 5.0f && !has_joy
                 && fabsf(speed) < 2.0f && !lifted;
 
@@ -197,7 +197,7 @@ void balance_step(float dt) {
     g_debug.cog_speed = speed;
     g_debug.cog_joy = has_joy;
 
-    /* ===== 8. 偏航控制 ===== */
+    /* ===== 8. Yaw control ===== */
     float yaw_out = 0.0f;
     bool has_yaw = (fabsf(g_tgt_yaw) > 0.05f);
 
@@ -229,7 +229,7 @@ void balance_step(float dt) {
     }
     had_yaw = has_yaw;
 
-    /* ===== 9. 差速输出 ===== */
+    /* ===== 9. Differential output ===== */
     float l_cmd = -0.5f * (lqr_u + yaw_out);
     float r_cmd = -0.5f * (lqr_u - yaw_out);
 
@@ -237,7 +237,7 @@ void balance_step(float dt) {
     g_out.motor_r = r_cmd;
     g_out.ok = true;
 
-    /* ===== 10. 更新调试数据 ===== */
+    /* ===== 10. Update debug data ===== */
     g_debug.ax = g_imu.ax;
     g_debug.ay = g_imu.ay;
     g_debug.az = g_imu.az;

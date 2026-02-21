@@ -1,7 +1,7 @@
 /*
- * wifi_ctrl.cpp - WiFi 控制和遥测
+ * wifi_ctrl.cpp - WiFi control and telemetry
  *
- * 使用 robot.h 中的全局状态，不再依赖 AppContext。
+ * Uses global state from robot.h, no longer depends on AppContext.
  */
 
 #include "wifi_ctrl.h"
@@ -12,15 +12,15 @@
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 
-/* 服务器实例 */
+/* Server instances */
 static AsyncWebServer server(80);
 static AsyncWebSocket ws("/ws");
 
-/* 参数路径 */
+/* Parameter path */
 static constexpr const char* PARAMS_PATH = "/params/balance.json";
 
 /*
- * 参数持久化
+ * Parameter persistence
  */
 static bool saveParams(void) {
     struct BalanceParams p;
@@ -58,7 +58,7 @@ static bool saveParams(void) {
 }
 
 /*
- * 发送遥测数据
+ * Send telemetry data
  */
 static void sendTelemetry(void) {
     bool has_ready_client = false;
@@ -118,7 +118,7 @@ static void sendTelemetry(void) {
 }
 
 /*
- * 发送参数
+ * Send parameters
  */
 static void sendParams(AsyncWebSocketClient* client) {
     struct BalanceParams p;
@@ -162,7 +162,7 @@ static void sendParams(AsyncWebSocketClient* client) {
 }
 
 /*
- * JSON 解析辅助
+ * JSON parsing helpers
  */
 static float parseValue(const char* buf) {
     const char* p = strstr(buf, "\"value\":");
@@ -188,7 +188,7 @@ static bool parseKey(const char* buf, char* out, size_t maxlen) {
 }
 
 /*
- * 参数设置处理
+ * Parameter setting handlers
  */
 static void handleSetAngle(const char* buf, AsyncWebSocketClient* client) {
     char key[32];
@@ -360,7 +360,7 @@ static void handleSaveParams(AsyncWebSocketClient* client) {
 }
 
 /*
- * 命令分发
+ * Command dispatch
  */
 static void handleCommand(uint8_t* data, size_t len, AsyncWebSocketClient* client) {
     char buf[512];
@@ -381,7 +381,7 @@ static void handleCommand(uint8_t* data, size_t len, AsyncWebSocketClient* clien
 }
 
 /*
- * WebSocket 事件处理
+ * WebSocket event handler
  */
 static void onWsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client,
                       AwsEventType type, void* arg, uint8_t* data, size_t len) {
@@ -399,7 +399,7 @@ static void onWsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client,
 }
 
 /*
- * 初始化
+ * Initialization
  */
 void wifi_ctrl_init(void) {
     WiFi.mode(WIFI_AP);
@@ -465,7 +465,7 @@ void wifi_ctrl_init(void) {
 }
 
 /*
- * WiFi 任务
+ * WiFi task
  */
 void wifi_ctrl_task(void* arg) {
     const TickType_t period = pdMS_TO_TICKS(50);
