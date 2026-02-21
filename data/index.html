@@ -134,8 +134,8 @@ a{color:#58a6ff;text-decoration:none}
   <div class="telem-box"><span class="lbl">俯仰</span><span class="val green" id="t-pitch">--</span><span class="unit">°</span></div>
   <div class="telem-box"><span class="lbl">滚转</span><span class="val" id="t-roll">--</span><span class="unit">°</span></div>
   <div class="telem-box"><span class="lbl">偏航</span><span class="val" id="t-yaw">--</span><span class="unit">°/s</span></div>
-  <div class="telem-box"><span class="lbl">左轮</span><span class="val green" id="t-wL">--</span><span class="unit">r/s</span></div>
-  <div class="telem-box"><span class="lbl">右轮</span><span class="val green" id="t-wR">--</span><span class="unit">r/s</span></div>
+  <div class="telem-box"><span class="lbl">左轮</span><span class="val green" id="t-w-l">--</span><span class="unit">r/s</span></div>
+  <div class="telem-box"><span class="lbl">右轮</span><span class="val green" id="t-w-r">--</span><span class="unit">r/s</span></div>
   <div class="telem-box"><span class="lbl">左电机</span><span class="val" id="t-lm">--</span><span class="unit">V</span></div>
   <div class="telem-box"><span class="lbl">右电机</span><span class="val" id="t-rm">--</span><span class="unit">V</span></div>
   <div class="telem-box"><span class="lbl">状态</span><span class="val" id="t-state">--</span></div>
@@ -273,8 +273,8 @@ a{color:#58a6ff;text-decoration:none}
     </div>
     <div class="params">
       <h3>编码器 (rad/s)</h3>
-      <div class="bar-row"><span class="lbl">wL</span><div class="bar"><div class="bar-fill" id="bar-wL"></div></div><span class="val" id="t-wL-bar">0.0</span></div>
-      <div class="bar-row"><span class="lbl">wR</span><div class="bar"><div class="bar-fill" id="bar-wR"></div></div><span class="val" id="t-wR-bar">0.0</span></div>
+      <div class="bar-row"><span class="lbl">w_l</span><div class="bar"><div class="bar-fill" id="bar-w_l"></div></div><span class="val" id="t-w_l-bar">0.0</span></div>
+      <div class="bar-row"><span class="lbl">w_r</span><div class="bar"><div class="bar-fill" id="bar-w_r"></div></div><span class="val" id="t-w_r-bar">0.0</span></div>
     </div>
   </div>
 
@@ -608,8 +608,8 @@ function handleTelem(d) {
   setText('t-pitch', d.pitch_deg!=null?d.pitch_deg.toFixed(1):'--');
   setText('t-roll', d.roll_deg!=null?d.roll_deg.toFixed(1):'--');
   setText('t-yaw', d.yr!=null?d.yr.toFixed(0):'--');
-  setText('t-wL', d.wL!=null?d.wL.toFixed(1):'--');
-  setText('t-wR', d.wR!=null?d.wR.toFixed(1):'--');
+  setText('t-w-l', d.w_l!=null?d.w_l.toFixed(1):'--');
+  setText('t-w-r', d.w_r!=null?d.w_r.toFixed(1):'--');
   setText('t-lm', d.lm!=null?d.lm.toFixed(1):'--');
   setText('t-rm', d.rm!=null?d.rm.toFixed(1):'--');
 
@@ -674,8 +674,8 @@ function handleTelem(d) {
   updateBar('gz', d.gz, -10, 10);
   updateBar('pitch', d.pitch_deg, -45, 45);
   updateBar('roll', d.roll_deg, -45, 45);
-  updateBar('wL', d.wL, -30, 30);
-  updateBar('wR', d.wR, -30, 30);
+  updateBar('w_l', d.w_l, -30, 30);
+  updateBar('w_r', d.w_r, -30, 30);
 
   // Controller page
   const limit = 8;

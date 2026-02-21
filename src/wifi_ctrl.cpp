@@ -84,7 +84,7 @@ static void sendTelemetry(void) {
         "\"gx\":%.4f,\"gy\":%.4f,\"gz\":%.4f,"
         "\"pitch\":%.4f,\"pitch_deg\":%.2f,\"pr\":%.4f,"
         "\"roll\":%.4f,\"roll_deg\":%.2f,\"yr\":%.4f,"
-        "\"wv\":%.4f,\"wL\":%.4f,\"wR\":%.4f,\"xL\":%.4f,\"xR\":%.4f,"
+        "\"wv\":%.4f,\"w_l\":%.4f,\"w_r\":%.4f,\"x_l\":%.4f,\"x_r\":%.4f,"
         "\"angle\":%.4f,\"gyro\":%.4f,\"dist\":%.4f,\"spd\":%.4f,"
         "\"lqr_raw\":%.4f,\"lqr_comp\":%.4f,"
         "\"yaw\":%.4f,\"heading\":%.3f,"
