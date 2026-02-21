@@ -1,119 +1,75 @@
-# Project Memory
+# 项目记忆
 
-Persistent record of constraints, rules, and technical decisions.
-
----
-
-## 2026-02-12
-
-### Architecture Constraints
-
-**Layered Control Stack (per CLAUDE.md):**
-1. Hardware Abstraction Layer (HAL) - this iteration
-2. Sensor Fusion / State Estimation
-3. Cascade Control Framework
-4. Safety and State Machine
-5. High-level behaviors / external command interface
-
-Each layer must only depend on the layer directly below it.
-
-**HAL Design Principles:**
-- Use abstract base classes with virtual interfaces
-- Minimize virtual call overhead (acceptable for 200Hz-1kHz loops)
-- Keep HAL headers Arduino-agnostic where possible
-- Static allocation preferred over heap
-
-### Control Loop Frequencies
-
-| Loop | Frequency | Core | Priority |
-|------|-----------|------|----------|
-| FOC / Motor | 1kHz | 1 | 5 |
-| Balance / Angle | 200Hz | 0 | 4 |
-| IMU Read | 200Hz | 0 | 5 |
-| Telemetry | ~10Hz | 0 | 1 |
-
-Balance loop must run at >= 200Hz to maintain stability.
-
-### Technical Debt
-
-- IMU complementary filter now in HAL (MPU6050_HAL) - future: add Mahony/Madgwick fusion layer
-- Control cascade implemented: Velocity → Angle
-- Position loop not yet implemented (future: Position → Velocity → Angle)
-- PID gains need retuning after cascade separation (conservative defaults set)
-- D-term on angle loop uses filtered pitch rate - verify noise level in practice
-
-### Control Architecture (New)
-
-```
-PositionController (future)
-    ↓ pitch_cmd
-VelocityController (outer, Kv)
-    ↓ pitch_cmd
-AngleController (inner, Kp/Ki/Kd)
-    ↓ motor_voltage
-Motor Driver
-```
-
-Current: Inner loop only (velocity loop disabled with Kv=0)
-Tune inner loop first, then enable outer loop.
-
-### Hardware Parameters
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| Wheel diameter | 70mm | radius = 0.035m |
-| Track width | 0.18m | wheel-to-wheel distance |
-| Pole pairs | 7 | BLDC motor spec |
-| Supply voltage | 12V | nominal |
-| Max safe tilt | 35° | balance protection threshold |
+持久化的约束、规则和技术决策记录。
 
 ---
 
-## 2026-02-14
+## 2026-02-21: Unix C 风格重构完成
 
-### Critical Controller Parameters (Post-Drift Fix)
+### 当前代码结构
 
-**Speed Loop Gain:**
-- `speed_kp = 0.5f` (minimum) - values below 0.3 cause robot drift
-- Do NOT reduce below 0.3 without testing on hardware
-- Reference: wheel-leg robot uses 0.7, we use 0.5 as conservative middle ground
+```
+src/
+├── main.cpp           # 硬件实例 + FreeRTOS 任务 + 串口命令 (574 行)
+├── robot.h            # 数据结构定义 (189 行)
+├── balance.cpp        # 平衡控制算法 (322 行)
+├── imu_mpu6050.cpp    # IMU 读取 (128 行)
+├── wifi_ctrl.cpp      # WiFi/WebSocket/OTA (479 行)
+└── pins.h             # GPIO 定义 (43 行)
 
-**Distance Zero-Point Reset:**
-- Fast-reset threshold: `speed > 30 rad/s` (~1 m/s)
-- Threshold must be high enough to allow normal movement without disabling position control
-- Values below 20 rad/s cause position hold to fail during commanded motion
+总计: ~1700 行，6 个文件
+```
 
-**Pitch Offset Self-Adaptation:**
-- Sign MUST be `pitch_offset +=` (not `-=`)
-- Logic: forward drift → positive distance_ctrl → increase pitch_offset → lean back → correct drift
-- Activation condition: `lqr_u < 5.0 && speed < 1.0 && no joystick input`
-- Activates only when robot is nearly stationary with persistent drift
+### 关键约束
 
-### Known Issues Fixed
+1. **轮子方向**：
+   - 左轮不取反，右轮取反
+   - 错误的符号会导致控制环路混乱
 
-- ✅ Robot drift (溜车) - caused by speed_kp too small (was 0.02, now 0.35)
-- ✅ Pitch offset adaptation inverted sign - would amplify drift instead of correcting
-- ✅ Position control disabled too easily - fast-reset at 15 rad/s was too low
-- ✅ Adaptation never activated - condition `distance_ctrl < 4.0` was too strict
+2. **IMU 单位**：
+   - `g_imu.pitch` 输出角度 (°)
+   - `g_imu.gy` 输出角速度 (rad/s)
 
-### Lightweight High-CoG Robot Parameters (500g, high center of gravity)
+3. **控制频率**：
+   - 平衡环必须 ≥200Hz
+   - FOC 环必须 =1kHz
 
-**Critical: Strong Damping Required**
-- `gyro_kp = 0.12f` (doubled from 0.06) - MOST IMPORTANT for suppressing oscillation
-- High-CoG robots behave like inverted pendulums with large angular acceleration
-- Insufficient damping causes continuous front-back rocking
+---
 
-**Reduced Gains for Lightweight Body**
-- `angle_kp = 5.0f` (reduced from 6.0) - avoid over-reaction
-- `speed_kp = 0.35f` (reduced from 0.5) - lower inertia needs gentler tracking
-- `distance_kp = 0.35f` (reduced from 0.5) - prevent chase oscillation
-- `lqr_u_ki = 10.0f` (reduced from 15.0) - lower static friction
+## 2026-02-14: 控制参数调优
 
-**Tighter Safety Limits**
-- `max_tilt_deg = 20°` (reduced from 25°) - high-CoG harder to recover
-- `pid_limit = 6.0` (reduced from 8.0) - prevent output overshoot
+### 关键参数下限
 
-**Tuning Priority:**
-1. First: gyro_kp (0.12-0.15) + angle_kp (4.5-5.5) for stable standing
-2. Then: speed_kp + distance_kp (0.25-0.45) for motion control
-3. Finally: lqr_u_ki and other compensation parameters
+- `speed_kp >= 0.3` (低于此值会导致漂移)
+- `gyro_kp = 0.08~0.12` (阻尼不足会导致振荡)
+
+### CoG 自适应
+
+- 激活条件：`|lqr_u| < 5 && |speed| < 2 && 无摇杆输入`
+- 调整方向：`pitch_offset -= zeropoint_kp × distance_ctrl`
+- `zeropoint_kp = 0.002` (过大会导致振荡)
+
+### 高重心机器人调参
+
+1. 先调 `gyro_kp` (0.12-0.15) + `angle_kp` (4.5-5.5) 实现稳定站立
+2. 再调 `speed_kp` + `distance_kp` (0.25-0.45) 实现运动控制
+3. 最后调 `lqr_u_ki` 和其他补偿参数
+
+---
+
+## 硬件参数
+
+| 参数 | 值 |
+|------|-----|
+| 轮子半径 | 0.03m |
+| 极对数 | 7 |
+| 供电电压 | 12V |
+| 最大安全倾角 | 60° |
+
+---
+
+## 技术债务
+
+- [ ] IMU 陀螺仪零偏校准 (目前无启动校准)
+- [ ] 参数从 Flash 自动加载 (目前使用代码默认值)
+- [ ] 地磁计融合消除偏航漂移 (长期)

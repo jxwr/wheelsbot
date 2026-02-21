@@ -1,291 +1,240 @@
-As the AI development agent for this project, you must strictly adhere to the following workflows and standards to ensure safe, consistent, and maintainable modifications in this large-scale codebase.
+# WheelsBot 开发指南
 
-Whenever you complete a task, analyze if there's any repetitive pattern you've noticed and suggest an update to Section 4 of CLAUDE.md to automate this knowledge for future sessions.
-
-Read MEM.md before you start.
+两轮自平衡机器人项目，运行于 ESP32-S3 平台。
 
 ---
 
-## 1. Interaction Protocol: The EPC Cycle
-Before executing any non-trivial code modifications, you must follow the **Explore-Plan-Code-Verify** loop:
+## 1. 项目概述
 
-1.  **Explore**:
-    * Use `grep`, `ls`, or `find` to locate relevant logic and definitions.
-    * Analyze cross-file dependencies (e.g., how an API change affects consumers).
-    * **Do not** guess logic; verify the file structure and existing patterns first.
-2.  **Plan**:
-    * Output a concise summary of your proposed changes in the terminal.
-    * Include: Files to be modified, core logic shifts, and potential side effects.
-    * **Wait for user confirmation** before proceeding to code generation.
-3.  **Code**:
-    * Implement changes based on the approved plan.
-    * Maintain the project's existing coding style (naming conventions, indentation, patterns).
-4.  **Verify**:
-    * Proactively run relevant tests.
-    * Check for Lint errors. If any are introduced, fix them immediately.
+### 1.1 核心架构
 
----
+```
+src/
+├── main.cpp           # 硬件实例 + FreeRTOS 任务 + 串口命令
+├── robot.h            # 数据结构定义（配置/状态/调试）
+├── balance.cpp        # 平衡控制算法
+├── imu_mpu6050.cpp    # IMU 读取
+├── wifi_ctrl.cpp      # WiFi/WebSocket/OTA
+└── pins.h             # GPIO 定义
+```
 
-## 2. Context Management
-* **Source of Truth**: Always prioritize information in `README.md`, `ARCHITECTURE.md`, and this `CLAUDE.md`.
-* **Pattern Discovery**: If you identify "hidden" project conventions (e.g., specific error handling patterns), point them out and ask if they should be added to this guide.
-* **Precise Referencing**: Use `@filename` or specific line ranges when discussing code to ensure clarity.
+**设计原则**：数据放 struct，算法用函数，状态全局可见。
 
----
+### 1.2 技术栈
 
-## 3. Git Workflow & Commit Standards
-We prioritize **Atomic Commits** to keep the project history clean and revertable.
-
-* **Branching Strategy**:
-    * Always work on a feature branch. Never modify `main` or `master` directly.
-* **Commit Frequency**:
-    * Commit after every "atomic" unit of work (e.g., refactoring a single function, adding a type definition, or fixing one bug).
-* **Commit Messages**:
-    * Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification (e.g., `feat:`, `fix:`, `refactor:`, `chore:`).
-    * *Example:* `feat(auth): add role-based access control to user service`
-* **Automation**:
-    * After verification, ask: "The changes are verified. Should I create a git commit for you?"
+| 组件 | 技术 |
+|------|------|
+| 平台 | ESP32-S3 (Arduino Framework) |
+| 电机控制 | SimpleFOC (FOC 无刷电机) |
+| 实时系统 | FreeRTOS |
+| IMU | MPU6050 (互补滤波) |
+| 编码器 | AS5600 (I2C 磁编码器) |
+| 通信 | WiFi AP + WebSocket |
+| 构建系统 | PlatformIO |
 
 ---
 
-## 4. Technical Standards (Project Specific)
-* **Core Stack**: ESP32-S3, Arduino Framework, SimpleFOC, FreeRTOS, PlatformIO
-* **Coding Style**:
-    * C++17 with embedded constraints (no STL containers, no exceptions)
-    * Static allocation only - no `new`/`malloc` in runtime hot paths
-    * Namespaces: `wheelsbot::hardware`, `wheelsbot::control`
-    * Class naming: `PascalCase` for classes, `snake_case` for files
-    * Member variables: trailing underscore for private members (`foo_`)
-* **Error Handling**:
-    * Fault flags pattern (`CASCADE_FAULT_*`, `BC_FAULT_*`)
-    * State machine approach (`STATE_DISABLED`, `STATE_RUNNING`, `STATE_FAULT`)
-    * Sensor timeout detection with configurable thresholds
-    * All control outputs include `valid` boolean flag
-* **Documentation**: All control interfaces must have class-level comments describing input/output units (rad, rad/s, V, etc.)
+## 2. 控制系统
+
+### 2.1 任务频率
+
+| 任务 | 频率 | 核心 | 优先级 |
+|------|------|------|--------|
+| FOC 电机 | 1kHz | 1 | 5 |
+| 平衡控制 | 200Hz | 0 | 4 |
+| IMU 读取 | 200Hz | 0 | 5 |
+| WiFi 遥测 | 20Hz | 0 | 1 |
+
+### 2.2 控制环路结构
+
+LQR 分解的并联 PID 控制：
+
+```
+                    ┌─ angle_kp × angle_error ────┐
+                    │                              │
+                    ├─ gyro_kp × pitch_rate ──────┤
+                    │                              │
+lqr_u ──────────────┼─ distance_kp × pos_error ───┼──→ motor_output
+                    │                              │
+                    ├─ speed_kp × wheel_vel ──────┤
+                    │                              │
+                    └─ lqr_u_kp × lqr_u + ki × ∫ ─┘
+
+differential:  motor_L = -0.5 × (lqr_u + yaw)
+               motor_R = -0.5 × (lqr_u - yaw)
+```
+
+### 2.3 关键参数
+
+| 参数 | 默认值 | 作用 |
+|------|--------|------|
+| `angle_kp` | 1.0 | 角度环增益 |
+| `gyro_kp` | 0.08 | 角速度阻尼 |
+| `distance_kp` | 0.3 | 位置环增益 |
+| `speed_kp` | 1.0 | 速度环增益 |
+| `zeropoint_kp` | 0.002 | CoG 自适应速率 |
+| `pitch_offset` | 0.0 | 重心偏移补偿 (°) |
+| `max_tilt_deg` | 60.0 | 最大倾角保护 (°) |
+
+### 2.4 CoG 自适应
+
+机器人静止时自动调整 `pitch_offset` 以补偿重心偏移：
+
+**激活条件**：
+- `|lqr_u| < 5.0` (输出较小)
+- 无摇杆输入
+- `|speed| < 2.0 rad/s`
+- 轮子未离地
+
+**调整方向**：`pitch_offset -= zeropoint_kp × distance_ctrl`
 
 ---
 
-## 5. Safety Guardrails
-* **No Mass Deletions**: Never delete large directories or multiple files without explicit, double-confirmed user authorization.
-* **Scope Locking**: Do not rewrite files unrelated to the current task (preventing "context drift").
-* **Uncertainty**: If the impact of a change is unclear, run analysis tools first and ask for clarification.
+## 3. 轮子方向约定
 
-## 6. Advanced Search & Retrieval (Precision First)
-* **Avoid "Cat All"**: Do not read large files entirely if only a specific function is needed. Use `sed` or `grep` to extract relevant lines first.
-* **Ripgrep Usage**: When searching for patterns, use `rg` with flags like `--type` (e.g., `rg --type ts "interface User"`) to narrow down results.
-* **Dependency Mapping**: If modifying a shared component/utility, always search for all import references to assess the "blast radius" of your change.
+**重要**：轮子速度/位置符号必须正确，否则控制环路混乱。
 
-## 7. Minimalist Editing & Diff Hygiene
-* **No Stealth Reformatting**: Do not change whitespace, quotes, or reorder imports unless specifically asked or if it violates the project's Prettier/Lint config. Keep the Git diff focused strictly on the logic change.
-* **Partial Writes**: For massive files (>1000 lines), prefer editing specific blocks rather than rewriting the whole file to prevent truncation or context loss.
-* **Comment Preservation**: Do not remove existing JSDoc or TODO comments unless they are explicitly rendered obsolete by your changes.
+```c
+// 正确配置 (与 main 分支一致)
+float wL_raw = sensor_left.getVelocity();   // 左轮不取反
+float wR_raw = -sensor_right.getVelocity(); // 右轮取反
 
-## 8. Environment Awareness & Verification
-* **Build Before Test**: In compiled languages (TS, Go, Rust), always run the build command (e.g., `npm run build`) before running tests to catch type-level errors that tests might miss.
-* **Log Cleanup**: If you added `console.log` or debug prints during the **Code** phase, you must remove them during the **Verify** phase before committing.
-* **Continuous Linting**: Run the linter (e.g., `eslint --fix`) as the final step of the **Code** phase to ensure the PR will pass CI.
-
-## 9. Decision Making & Ambiguity
-* **The "Choose Two" Rule**: If a task can be implemented in multiple ways (e.g., performance vs. readability), stop and ask the user for a preference instead of assuming.
-* **Edge Case Probing**: When planning, proactively suggest 1-2 edge cases you intend to handle (e.g., "I will also handle the null case for the API response").
-
-## 10. Documentation Debt
-* **Auto-Update Docs**: If a logic change alters the behavior of an API or a CLI tool, you are responsible for updating the corresponding `.md` documentation or help text in the same commit.
-
-
-# About the Project
-
-## 1. Project Goal
-
-This project aims to gradually evolve a two‑wheel self‑balancing robot into a modular, extensible robotics control framework. The framework must support multiple hardware configurations, interchangeable sensors, different motor drivers, and layered control architectures while remaining suitable for real‑time embedded deployment.
-
-Claude Code will be used iteratively to:
-
-* Improve the control architecture
-* Refactor code into reusable modules
-* Introduce plugin‑based hardware abstraction
-* Maintain stability and real‑time performance
-* Enable experimentation with advanced controllers and AI integration
-
-The system must always remain runnable after each iteration.
+g_wheel.x_l = sensor_left.getAngle();    // 左轮不取反
+g_wheel.x_r = -sensor_right.getAngle();  // 右轮取反
+```
 
 ---
 
-## 2. Core Architectural Principles
+## 4. 串口调试
 
-### 2.1 Layered Control Stack
+### 4.1 命令格式
 
-The software must follow a strict layered structure:
+```
+param=value    # 设置参数
+param?         # 查询参数
+dump           # 显示所有参数
+telem          # 显示遥测数据
+save           # 保存参数到 Flash
+reset          # 重置控制器
+help           # 帮助
+```
 
-1. Hardware Abstraction Layer (HAL)
-2. Sensor Fusion / State Estimation
-3. Cascade Control Framework
-4. Safety and State Machine
-5. High‑level behaviors / external command interface
+### 4.2 调试工具
 
-Each layer must only depend on the layer directly below it.
-
----
-
-### 2.2 Cascade Control Philosophy
-
-The control system must be implemented as a cascade of control loops where each loop regulates a physical state variable.
-
-Typical cascade chain:
-
-Position Loop → Velocity Loop → Angle Loop → Torque / Current Loop
-
-Rules:
-
-* Each loop outputs the reference input of the next loop
-* Loop bandwidth must be separated (inner loops significantly faster)
-* Loops must support saturation and anti‑windup
-* Loops must be independently testable
+```bash
+cd tools
+python3 debug_check_params.py      # 检查参数
+python3 debug_monitor_cog.py       # 监控 CoG 自适应
+python3 debug_analyze_oscillation.py  # 分析振荡
+```
 
 ---
 
-### 2.3 Plugin‑Based Hardware Support
+## 5. 命名规范
 
-The framework must allow runtime or compile‑time selection of:
+### 5.1 保留完整的核心词
 
-* IMU types (e.g., MPU6050, ICM42688, BNO085)
-* Encoder types (magnetic, quadrature, SPI absolute)
-* Motor drivers (FOC driver, voltage driver, smart servo)
+`angle`, `gyro`, `distance`, `speed`, `yaw`, `pitch`, `roll`
 
-All hardware must implement standardized interfaces.
+### 5.2 缩写规则
 
-Example interface categories:
+| 完整词 | 缩写 |
+|--------|------|
+| contribution | ctrl |
+| enable | en |
+| zeropoint | zero |
+| velocity | vel |
+| compensated | comp |
+| adjustment | adj |
+| joystick | joy |
+| output | out |
 
-* IMUSensor
-* WheelEncoder
-* MotorDriver
-* PowerMonitor
+### 5.3 示例
 
-New hardware must be addable without modifying control logic.
+```c
+// 正确
+float angle_ctrl, gyro_ctrl, distance_ctrl;
+bool balance_en, motor_en;
+float motor_l, motor_r, w_l, w_r;
 
----
-
-## 3. Control Framework Requirements
-
-### 3.1 Generic ControlLoop Interface
-
-All controllers must inherit from a unified control loop interface:
-
-Required capabilities:
-
-* step(reference, measurement, dt)
-* reset()
-* setLimits(min, max)
-* runtime parameter update
-
-Controller implementations may include:
-
-* PID
-* LQR (future)
-* MPC (future)
-* Learned controllers (future)
+// 错误
+float angle_contribution, wL, xR;
+```
 
 ---
 
-### 3.2 Cascade Controller Composition
+## 6. 硬件参数
 
-The framework must allow multiple ControlLoop objects to be composed into a cascade controller pipeline.
-
-Requirements:
-
-* Loops are connected in sequence
-* Each loop operates at its own frequency
-* Scheduler must guarantee deterministic execution order
-* Debug output for each stage must be available
-
----
-
-## 4. State Estimation Requirements
-
-The system must maintain a centralized robot state structure containing:
-
-* orientation (pitch, roll, yaw)
-* angular velocity
-* wheel velocity
-* robot velocity
-* position estimate (optional)
-
-Sensor fusion must be replaceable without affecting the controller API.
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| 轮子直径 | 60mm | radius = 0.03m |
+| 极对数 | 7 | BLDC 电机 |
+| 电源电压 | 12V | 标称 |
+| I2C1 | SDA=3, SCL=9 | IMU + 左编码器 |
+| I2C2 | SDA=2, SCL=1 | 右编码器 |
 
 ---
 
-## 5. Safety and Reliability
+## 7. 开发流程
 
-The framework must include a safety state machine capable of handling:
+### 7.1 探索-计划-编码-验证
 
-* fall detection
-* motor disable conditions
-* sensor failure
-* voltage protection
-* watchdog recovery
+1. **Explore**: 使用 `grep`/`Glob` 定位相关代码
+2. **Plan**: 输出修改计划，等待确认
+3. **Code**: 实现修改，保持现有风格
+4. **Verify**: 构建验证 `pio run -e esp32s3`
 
-Control loops must never directly bypass safety constraints.
+### 7.2 提交规范
 
----
+- 使用 [Conventional Commits](https://www.conventionalcommits.org/)
+- 类型：`feat:`, `fix:`, `refactor:`, `chore:`
+- 示例：`fix(control): correct wheel velocity sign convention`
 
-## 6. Real‑Time Execution Model
+### 7.3 分支策略
 
-The framework must support deterministic scheduling of multiple control tasks:
-
-Typical task frequency targets:
-
-* Motor / torque loop: highest frequency
-* Balance / angle loop: high frequency
-* Velocity loop: medium frequency
-* Position loop: low frequency
-* Telemetry / logging: asynchronous
-
-The scheduling mechanism must allow adding new control loops without redesigning the runtime.
+- `main` - 稳定版本
+- `refactor/unix-c-style` - 当前开发版本
+- 功能分支从 main 创建
 
 ---
 
-## 7. Extensibility Goals
+## 8. 决策记录
 
-Future framework extensions must be supported without redesigning the core:
+重要决策记录在 `docs/decisions/`，格式：
 
-* Reinforcement learning policy output as high‑level command
-* Vision‑based control modules
-* Multi‑actuator robots (wheel‑leg, humanoid joints)
-* Distributed multi‑controller systems
+```markdown
+# Decision: <标题>
 
-The cascade control layer must remain the stable execution core.
+Date: YYYY-MM-DD
 
----
+## Context
+背景描述
 
-## 8. Development Strategy with Claude Code
+## Decision
+选择的方案
 
-Claude Code should evolve the system gradually using the following approach:
-
-1. Preserve working functionality at every step
-2. Introduce abstraction layers incrementally
-3. Avoid premature generalization
-4. Refactor toward modular plugin‑based hardware interfaces
-5. Add control loop abstraction before expanding algorithms
-6. Ensure safety constraints remain active during all refactors
-
-Each iteration should:
-
-* keep the robot operational
-* reduce coupling
-* increase modularity
-* improve observability and debugging support
+## Impact
+影响范围
+```
 
 ---
 
-## 9. Long‑Term Vision
+## 9. 故障排查
 
-The final system should resemble a miniature robotics control platform featuring:
+### 9.1 机器人无法平衡
 
-* hardware abstraction
-* state estimation pipeline
-* modular cascade control architecture
-* real‑time scheduling
-* safety management
-* high‑level AI or planning integration
+1. 检查轮子方向符号是否正确
+2. 检查 IMU 是否初始化成功 (`telem` 命令)
+3. 检查参数是否合理 (`dump` 命令)
 
-The balance robot will serve as the initial reference platform, but the framework should be reusable for future robotic systems.
+### 9.2 机器人漂移
+
+1. 检查 `speed_kp` 是否过小 (<0.3)
+2. 检查 CoG 自适应是否激活 (`debug_monitor_cog.py`)
+3. 检查 `pitch_offset` 是否收敛
+
+### 9.3 机器人振荡
+
+1. 增加 `gyro_kp` (0.08 → 0.12)
+2. 减少 `angle_kp`
+3. 使用 `debug_analyze_oscillation.py` 定位振荡源

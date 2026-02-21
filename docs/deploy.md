@@ -18,7 +18,7 @@
 
 ```bash
 # 1. 进入项目目录
-cd /Users/jiaoxiang/pid/wheelsbot
+cd /Users/jxwr/hardware/wheelsbot
 
 # 2. 编译并烧录固件
 pio run -t upload
@@ -201,7 +201,7 @@ pio run -t uploadfs
 
 ## 只修改控制器参数时的部署
 
-如果只是通过 Web 界面调整参数并保存到 Flash，**无需重新部署**，参数会自动持久化到 `/params/cascade.json`。
+如果只是通过 Web 界面调整参数并保存到 Flash，**无需重新部署**，参数会自动持久化到 `/params/balance.json`。
 
 ---
 
@@ -260,4 +260,4 @@ pio run -t uploadfs
 
 ---
 
-最后更新：2026-02-12
+最后更新：2026-02-21
